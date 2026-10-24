@@ -2056,20 +2056,20 @@ function drawShareLayout(P){
     if(c.rows.length) c.rows.forEach(r => { lvRow(ctx, x, cy, r.icon ? pl_imgSrc(r.icon) : "", r.name, "Lv" + r.lv); cy += 28; });
     else { setF(ctx, 12.5, "", C.faint); ctx.fillText("（未选分支）", x + 14, cy + 18); }
   };
-  /* ---- 装备卡：固有数值词条 prop+T2 区间 / 固有特效 ✦ 全文 / 目标词条 ◎ ---- */
+  /* ---- 装备卡：词条只写名称（去尾部数值区间，过长折 2 行）——固有 prop 金字 / 固有特效 ✦ 全文 / 目标 ◎ ---- */
+  const traitName = s => String(s || "").replace(PL_RANGE_SUF, "").trim();
   const eqCards = equips.map(({ slot, e, picked }) => {
     const rows = [];
     (e.fixed_traits || []).forEach(t => {
-      if(t.prop && (t.range_t2 || t.range)){
-        // name = 显示名 + T2 区间（如「远程功法伤害 16.965%~21.645%」），比 prop 更能区分同类词条
-        const nm = String(t.name || "").replace(/\s+[-\d.~%]+\s*$/, "").trim() || t.prop;
-        rows.push({ k: "prop", prop: nm, val: t.range_t2 || t.range });
-      }
+      if(t.prop && (t.range_t2 || t.range)) rows.push({ k: "prop", text: traitName(t.name) || t.prop });
       else rows.push({ k: "fx", text: fxText(t) });
     });
-    (picked || []).forEach(t => rows.push({ k: "pick", text: t }));
+    (picked || []).forEach(t => rows.push({ k: "pick", text: traitName(t) }));
     let h = 68 + 10;
-    rows.forEach(r => { h += r.k === "prop" ? 22 : wrap(r.text, 12.5, CW - 46).length * 18 + (r.k === "fx" ? 6 : 4); });
+    rows.forEach(r => {
+      h += r.k === "fx" ? wrap(r.text, 12.5, CW - 46).length * 18 + 6
+                        : Math.min(wrap(r.text, 13, r.k === "prop" ? CW - 28 : CW - 46).length, 2) * 18 + 4;
+    });
     return { slot, e, rows, h };
   });
   const drawEquip = (c, ctx, x, y, hH) => {
@@ -2079,12 +2079,19 @@ function drawShareLayout(P){
     let cy = y + 68;
     c.rows.forEach(r => {
       if(r.k === "prop"){
-        setF(ctx, 13, "600", C.gold); ctx.fillText(r.prop, x + 14, cy + 13);
-        setF(ctx, 12.5, "", C.bright); ctx.fillText(r.val, x + 14 + mw(r.prop, 13, "600") + 8, cy + 13);
-        cy += 22;
+        const lines = wrap(r.text, 13, CW - 28).slice(0, 2);
+        setF(ctx, 13, "600", C.gold);
+        lines.forEach((ln, i) => ctx.fillText(ln, x + 14, cy + 12 + i * 18));
+        cy += lines.length * 18 + 4;
+      }else if(r.k === "pick"){
+        setF(ctx, 12.5, "600", C.gold); ctx.fillText("◎", x + 14, cy + 12);
+        const lines = wrap(r.text, 13, CW - 46).slice(0, 2);
+        setF(ctx, 13, "", C.bright);
+        lines.forEach((ln, i) => ctx.fillText(ln, x + 32, cy + 12 + i * 18));
+        cy += lines.length * 18 + 4;
       }else{
-        setF(ctx, 12.5, "600", C.gold); ctx.fillText(r.k === "fx" ? "✦" : "◎", x + 14, cy + 12);
-        cy = wrapBlock(ctx, x + 32, cy + 12, r.text, 12.5, r.k === "fx" ? C.dim : C.bright, CW - 46, 18) + (r.k === "fx" ? 6 : 4);
+        setF(ctx, 12.5, "600", C.gold); ctx.fillText("✦", x + 14, cy + 12);
+        cy = wrapBlock(ctx, x + 32, cy + 12, r.text, 12.5, C.dim, CW - 46, 18) + 6;
       }
     });
   };
