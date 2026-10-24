@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("TaiwuDpsMeter")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Release")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("0.1.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("0.1.0+3aad4d39dccc8ef91a2a5a60e96af29bb683519b")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("0.1.0+2e84110d3195bee07387d81e0005917143048517")]
 [assembly: System.Reflection.AssemblyProductAttribute("TaiwuDpsMeter")]
 [assembly: System.Reflection.AssemblyTitleAttribute("TaiwuDpsMeter")]
 [assembly: System.Reflection.AssemblyVersionAttribute("0.1.0.0")]

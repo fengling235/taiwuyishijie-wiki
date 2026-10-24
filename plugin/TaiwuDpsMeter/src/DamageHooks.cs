@@ -220,7 +220,6 @@ internal static class SettlementLedger
                     map[n] = (AttrKey(n, prefixes), KindOf(ef, n));
                 }
             _resolve = map;
-            Plugin.Log.LogInfo($"[dot] 结算效果索引就绪：{map.Count} 个 Type=10 效果，功法槽前缀 {prefixes.Count} 个");
         }
         catch (Exception e)
         {
@@ -396,8 +395,6 @@ internal static class UITeammateInfo_UpdateCampsite_Patch
         {
             CharacterRegistry.NoteMember(playerId, characterName, playerName);
             string key = playerId + "|" + characterName + "|" + playerName;
-            if (_loggedNames.Add(key) && _loggedNames.Count < 64)
-                Plugin.Log.LogInfo($"[name] 营地页 playerId={playerId} 角色={characterName ?? "-"} Steam={playerName ?? "-"} ready={readyStatus} host={isHost}");
         }
         catch { /* 名字链路永远不抛 */ }
     }

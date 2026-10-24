@@ -102,7 +102,6 @@ public partial class MeterController
                     }
                     // 一次性探测日志：下局 Boss 战若面板没出，日志能直接告诉我每个目标的判定结果
                     if (_bossProbeLogged.Add(t.Key))
-                        Plugin.Log.LogInfo($"[boss] 探测 uid={t.Key} name={name ?? "?"} hp={ehp:F0} boss={boss}");
                     if (boss)
                     {
                         _bossEverUids.Add(t.Key);
@@ -280,13 +279,6 @@ public partial class MeterController
                 }
             }
 
-            // [boss] 状态日志（每 5s）：多人局「面板没出/行是空」的排查靠它——show 各条件与行数一目了然
-            if (DamageBus.NowMs >= _nextBossStatMs)
-            {
-                _nextBossStatMs = DamageBus.NowMs + 5000;
-                Plugin.Log.LogInfo(
-                    $"[boss] 状态 show={_bossPanel.activeSelf} 开关={_bossUserOpen} host={_hostMode} view={_view} uid={_bossUid} 实战={(_bossTimeValid ? MmSs(Math.Max(_bossFightSec - _bossIdleSec, 0)) : "-")} 全程={(_bossTimeValid ? MmSs(_bossFightSec) : "-")} 玩家行={players.Count} 技能行={ordered.Count} 总伤={Fmt(total)}");
-            }
         }
         catch (Exception e)
         {
@@ -315,13 +307,13 @@ public partial class MeterController
     private float _bossLastHp;
     private double _bossAliveMs;
     private readonly HashSet<int> _bossEverUids = new(); // 探测确认过的 Boss uid（死亡后聚合不许被剪掉）
-    private readonly HashSet<int> _bossProbeLogged = new(); // [boss] 探测日志：每 uid 一次
+    private readonly HashSet<int> _bossProbeLogged = new(); // [boss] 探测日志：每 uid 一次（公开版无害）
     private bool _bossUserOpen = true; // Boss 面板开关（主工具栏 Boss ✓/✗，取代死亡 8 秒自动隐藏）
     private bool _bossDeadZero; // 已确认死亡（读数≤0 或对象消失）：血条定格为 0
     private bool _bossTimeValid; // 是否拿到战斗时间线（首跳起）
     private double _bossFightSec; // 战斗时长：对该 Boss 首跳→末跳（WCL 遭遇时长口径）
     private double _bossIdleSec; // 无敌/离场累计：断流 >3s 的间隙和（WCL 停机时间口径）
-    private double _nextBossStatMs; // [boss] 状态日志的下次输出时刻
+    private double _nextBossStatMs; // [boss] 状态日志节拍（公开版无害）
 
     /// <summary>清空 Boss 面板状态（账本已 Reset 时一并调用，防止上局的 Boss uid/聚合漏到下局）。</summary>
     private void ResetBossState()

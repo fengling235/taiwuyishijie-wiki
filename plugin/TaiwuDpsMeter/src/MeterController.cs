@@ -158,16 +158,12 @@ public partial class MeterController
     private double _lastTickWallMs = -1;
 
     // [perf] 自诊断：渲染单次耗时 + 每 10s 一条事件速率/队列积压，用户卡顿时日志直接定责
-    private double _renderMs;
     private long _perfEvents;
-    private double _perfNextMs;
 
     // 触发效果暴击诊断：EffectName → (跳数, 暴击数)，每 30s 一行 [critdiag]
-    private readonly Dictionary<string, (long, long)> _trigCrit = new();
     private double _trigCritNextMs;
 
     // [dot] 结算触发计数汇总日志的节拍（数据本体在 SettlementLedger）
-    private double _dotNextMs;
 
     // 定时 Boss（第 X 分钟刷本图终局 Boss ×N，全杀完原生结算通关）
 
@@ -232,18 +228,12 @@ public partial class MeterController
         double idleMs = Math.Max(_cfgIdleSec, 1f) * 1000.0;
         while (DamageBus.TryDequeue(out var e))
         {
-            _perfEvents++;
             if (_dpsOff) continue; // 统计关闭：只排空队列不处理
             e.TimestampMs -= (long)_pausedMs; // 事件墙钟时间戳 → 游戏钟
             // 触发效果暴击诊断（2026-10-24）：按效果名统计 跳数/暴击数——神火爆炸"吃暴击"但面板 0% 的定案手段，
             // hook 抓到 crit=true=游戏真在暴击（面板/口径问题）；全 false=游戏侧该效果确实不暴击（面板正确）
-            if (e.Kind == EventKind.ExecuteHit && e.SkillIndex < 0 && !string.IsNullOrEmpty(e.EffectName))
-            {
-                var cs = _trigCrit.TryGetValue(e.EffectName, out var v) ? v : (0, 0);
-                _trigCrit[e.EffectName] = (cs.Item1 + 1, cs.Item2 + (e.IsCritical ? 1 : 0));
-            }
             // Type=10 结算触发计数（2026-10-24）：功法族后缀+近窗列（面板）+ [dot] 汇总（日志）
-            else if (e.Kind == EventKind.Settlement)
+            if (e.Kind == EventKind.Settlement)
             {
                 SettlementLedger.Add(e.AttackerUid, e.EffectName, e.SkillIndex, e.TimestampMs);
             }
@@ -265,47 +255,10 @@ public partial class MeterController
             _lastRenderMs = wall;
             var sw = System.Diagnostics.Stopwatch.StartNew();
             Render(gameNow);
-            _renderMs = _renderMs * 0.7 + sw.Elapsed.TotalMilliseconds * 0.3; // 平滑值，[perf] 用
         }
 
-        // [perf] 每 10s 一条自诊断：渲染单次耗时 / 事件速率 / 队列积压——卡顿瞬间定责用
-        if (wall >= _perfNextMs)
-        {
-            _perfNextMs = wall + 10_000;
-            Plugin.Log.LogInfo($"[perf] 渲染={_renderMs:0.0}ms(250ms一刷) 事件={_perfEvents}/10s 队列积压={DamageBus.QueueDepth} dps关闭={_dpsOff}");
-            _perfEvents = 0;
-        }
 
-        // [critdiag] 每 30s：触发类效果（skill=-1）的跳数/暴击数——神火爆炸等「是否真暴击」的取证
-        if (wall >= _trigCritNextMs)
-        {
-            _trigCritNextMs = wall + 30_000;
-            if (_trigCrit.Count > 0)
-            {
-                var sb = new System.Text.StringBuilder("[critdiag] 触发效果暴击：");
-                foreach (var kv in _trigCrit)
-                    sb.Append($"{kv.Key} {kv.Value.Item2}/{kv.Value.Item1}({(kv.Value.Item1 > 0 ? kv.Value.Item2 * 100.0 / kv.Value.Item1 : 0):0.#}%) ");
-                Plugin.Log.LogInfo(sb.ToString());
-            }
-        }
 
-        // [dot] 每 30s：按玩家×归属键汇总的结算触发计数（毒/爆/外/他）——非功法族来源（装备/丹药/Boss）也在此可见
-        if (wall >= _dotNextMs)
-        {
-            _dotNextMs = wall + 30_000;
-            if (SettlementLedger.By.Count > 0)
-            {
-                var sb = new System.Text.StringBuilder("[dot] 结算触发：");
-                foreach (var kv in SettlementLedger.By)
-                {
-                    string who = "#" + kv.Key;
-                    try { var en = _registry.Resolve(kv.Key); if (en != null && !string.IsNullOrEmpty(en.Name)) who = en.Name; } catch { }
-                    foreach (var k2 in kv.Value)
-                        sb.Append($"{who}[{TriggerNames.Get(k2.Key)} 毒{k2.Value.Kinds[SettlementLedger.Poison]} 爆{k2.Value.Kinds[SettlementLedger.Fire]} 外{k2.Value.Kinds[SettlementLedger.Bleed]} 他{k2.Value.Kinds[SettlementLedger.Other]}] ");
-                }
-                Plugin.Log.LogInfo(sb.ToString());
-            }
-        }
 
     }
 

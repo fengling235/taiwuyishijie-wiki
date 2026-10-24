@@ -174,17 +174,6 @@ public partial class MeterController
         // 那是「该 uid 是否养了随从」（键=主人），用它过滤会把有随从的玩家整行吞掉（2026-10-18 实战炸过）
         var followerUids = new HashSet<int>(pairs.Where(t => t.Owner.HasValue).Select(t => t.x.Actor.Uid));
 
-        // 诊断：随从挂主结果每个 uid 记一次，下局若仍未挂主，日志能直接定位是哪一环断了
-        foreach (var (x, owner) in pairs)
-        {
-            if (x.Entry.Kind != CharKind.Squire && x.Entry.Kind != CharKind.Summon) continue;
-            if (!_nestLogged.Add(x.Actor.Uid)) continue;
-            if (owner.HasValue)
-                Plugin.Log.LogInfo($"[tree] 随从挂主 uid={x.Actor.Uid} {x.Entry.Name} → owner={owner.Value}" +
-                                   (x.Entry.OwnerUid == owner ? "（字段解析）" : "（单人兜底）"));
-            else
-                Plugin.Log.LogInfo($"[tree] 随从未挂主 uid={x.Actor.Uid} {x.Entry.Name} ownerRaw={(x.Entry.OwnerUid.HasValue ? x.Entry.OwnerUid.Value.ToString() : "null")}（主人不在本局角色表中）");
-        }
 
         var tops = entries
             .Where(x => !followerUids.Contains(x.Actor.Uid))

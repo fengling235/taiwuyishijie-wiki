@@ -177,7 +177,6 @@ internal sealed class CharacterRegistry
                     if (!_nameFailLogged.Contains(uid))
                     {
                         _nameFailLogged.Add(uid);
-                        Plugin.Log.LogInfo($"[name][诊] uid={uid} idx={idx} 中文名链失败（{failReason ?? "?"}），显示拼音 {rawName}");
                     }
                 }
                 string steam = idx >= 0 && SteamByIndex.TryGetValue(idx, out var st) ? st : null;

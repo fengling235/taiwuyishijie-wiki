@@ -290,12 +290,6 @@ public partial class MeterController
             _inputBuf = (Plugin.CfgDummyCount?.Value ?? 1).ToString(Inv);
             return true;
         }
-        {
-            // 右键「追击/伤害」= 直接输入层数（0=清零）
-            _inputMode = true;
-            _inputTargetAction = btn.Value;
-            return true;
-        }
         if (btn.Value == ButtonAction.LoadBuild)
         {
             // 右键「装配BD」= 直接读剪贴板装配（wiki 复制 JSON → 右键即装，不走输入模式）
