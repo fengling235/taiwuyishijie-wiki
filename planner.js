@@ -1607,7 +1607,7 @@ function drawTwoColLayout(P){
   const W = 1240, PAD = 48, GAP = 26, LW = 660;   // 左栏宽
   const RX = PAD + LW + GAP, RW = W - PAD - RX;
   const cv = document.createElement("canvas");
-  const mk = (w, h) => { cv.width = w; cv.height = h; return cv.getContext("2d"); };
+  const mk = (w, h) => { cv.width = w * EXPORT_SCALE; cv.height = h * EXPORT_SCALE; const c = cv.getContext("2d"); c.scale(EXPORT_SCALE, EXPORT_SCALE); return c; };
   const setF = (ctx, size, weight, color) => { ctx.font = (weight || "") + " " + size + "px " + FONT; ctx.fillStyle = color; };
   const rrect = (ctx, x, y, w, h, r) => { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); };
   const pill = (ctx, x, y, text, size, color, alpha) => {
@@ -1770,7 +1770,7 @@ function drawMinimalLayout(P){
   const { ch, talents, skills, equips, elixirs, tagCount, pet, tw, clip } = P;
   const W = 920, PAD = 84;
   const cv = document.createElement("canvas");
-  const mk = (h) => { cv.width = W; cv.height = h; return cv.getContext("2d"); };
+  const mk = (h) => { cv.width = W * EXPORT_SCALE; cv.height = h * EXPORT_SCALE; const c = cv.getContext("2d"); c.scale(EXPORT_SCALE, EXPORT_SCALE); return c; };
   const setF = (ctx, size, weight, color) => { ctx.font = (weight || "") + " " + size + "px " + FONT; ctx.fillStyle = color; };
 
   // 高度
@@ -2101,8 +2101,9 @@ function drawShareLayout(P){
     + (skCards.length ? 36 + Math.ceil(skCards.length / 2) * (Math.max(...skCards.map(c => c.h)) + GAP) : 0)
     + (eqCards.length ? 36 + Math.ceil(eqCards.length / 2) * (Math.max(...eqCards.map(c => c.h)) + GAP) : 0)
     + (elixirs.length ? 60 + elixirs.length * 38 : 0) + 320;
-  cv.width = W; cv.height = estH;
+  cv.width = W * EXPORT_SCALE; cv.height = estH * EXPORT_SCALE;
   const ctx = cv.getContext("2d");
+  ctx.scale(EXPORT_SCALE, EXPORT_SCALE);
   ctx.fillStyle = C.bg; ctx.fillRect(0, 0, W, estH);
   ctx.textBaseline = "alphabetic"; ctx.textAlign = "left";
 
@@ -2166,9 +2167,9 @@ function drawShareLayout(P){
   const H = y + 40;
 
   const out = document.createElement("canvas");
-  out.width = W; out.height = H;
+  out.width = W * EXPORT_SCALE; out.height = H * EXPORT_SCALE;
   const octx = out.getContext("2d");
-  octx.fillStyle = C.bg; octx.fillRect(0, 0, W, H);
+  octx.fillStyle = C.bg; octx.fillRect(0, 0, out.width, out.height);
   octx.drawImage(cv, 0, 0);
   return out;
 }
@@ -2181,6 +2182,7 @@ const IMG = {
   rar: { "凡品": "#9aa7b5", "奇品": "#5fa8d6", "极品": "#b07fe0", "绝品": "#e0a94a" }
 };
 const FONT = '"Noto Serif SC","Source Han Serif SC","Songti SC",SimSun,serif';
+const EXPORT_SCALE = 2;   // 分享图 2x 超采样导出（高分屏/放大查看不发糊）
 
 function pl_imgSrc(name){ return "icons/" + encodeURIComponent(name) + ".png"; }
 
@@ -2264,8 +2266,9 @@ async function exportBuildImage(){
   H += 88;                          // 底部
 
   const cv = document.createElement("canvas");
-  cv.width = W; cv.height = H;
+  cv.width = W * EXPORT_SCALE; cv.height = H * EXPORT_SCALE;
   const ctx = cv.getContext("2d");
+  ctx.scale(EXPORT_SCALE, EXPORT_SCALE);
   const setF = (size, weight, color) => { ctx.font = (weight || "") + " " + size + "px " + FONT; ctx.fillStyle = color; };
   const rrect = (x, y, w, h, r) => { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); };
   const pill = (x, y, text, size, color, alpha) => {
