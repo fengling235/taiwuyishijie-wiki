@@ -117,8 +117,6 @@ public partial class MeterController
     private bool _hostMode;
     private double _lastHostCheckMs = -HostCheckIntervalMs;
     private double _lastRenderMs;
-    private double _lastDebugSummaryMs;
-    private long _debugLogged;
 
     // 鼠标交互（轮询式；本运行时不能注入 MonoBehaviour，事件接口走不了）
     private bool? _mouseWorks;
@@ -141,7 +139,6 @@ public partial class MeterController
     private int _toolboxTab;   // 当前 tab：0=难度 1=环境 2=构筑 3=调试
     private bool _dragToolbox; // 工具箱拖拽中
     private Vector2 _tbDragOffset;
-    private Text _rampPreview; // 曲线页预览行（局内分钟+各轴实时因子，非按钮）
 
     private Key _kToggle = Key.F8;
     private Key _kReset = Key.F9;
@@ -157,15 +154,9 @@ public partial class MeterController
     private double _pausedMs;
     private double _lastTickWallMs = -1;
 
-    // [perf] 自诊断：渲染单次耗时 + 每 10s 一条事件速率/队列积压，用户卡顿时日志直接定责
-    private long _perfEvents;
 
-    // 触发效果暴击诊断：EffectName → (跳数, 暴击数)，每 30s 一行 [critdiag]
-    private double _trigCritNextMs;
 
-    // [dot] 结算触发计数汇总日志的节拍（数据本体在 SettlementLedger）
 
-    // 定时 Boss（第 X 分钟刷本图终局 Boss ×N，全杀完原生结算通关）
 
 
     private MeterController()
@@ -263,8 +254,6 @@ public partial class MeterController
     }
 
     // TickCore 每帧配置的 250ms 缓存值（_cfgAt=-250 保证首帧即刷）
-    private bool _cfgDemo;
-    private bool _cfgDebugLog;
     private float _cfgIdleSec = 8f;
     private int _cfgAt = -250;
 

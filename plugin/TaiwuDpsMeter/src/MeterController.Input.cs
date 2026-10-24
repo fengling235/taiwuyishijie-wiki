@@ -326,11 +326,12 @@ public partial class MeterController
     private static string TuneLabel(ButtonAction a) => a switch
     {
         ButtonAction.DummyToggle => "木桩数量",
-        _ => "移速",
+        _ => "参数",
     };
 
     private static float CurrentTuneValue(ButtonAction a) => a switch
     {
+        _ => 1f, // 公开版不可达（IsTunable 只放行 DummyToggle，且 DummyToggle 在 TryStartTuneInput 早退）——留安全兜底防未来加项漏写
     };
 
     private static (float Min, float Max) TuneRange(ButtonAction a) => a switch
@@ -342,6 +343,7 @@ public partial class MeterController
     {
         switch (a)
         {
+            // 公开版无可调浮点项：木桩数量走 HandleTuneInput 的 DummyToggle 整数分支就地处理，不经此处
         }
         try { Plugin.ConfigFile?.Save(); } catch { /* 存不进就算了，本次会话内仍生效 */ }
     }

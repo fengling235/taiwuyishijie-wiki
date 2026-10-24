@@ -1,11 +1,11 @@
+D:\project\taiwuyishijie\publish\plugin\TaiwuDpsMeter\_bin\TaiwuDpsMeter.deps.json
+D:\project\taiwuyishijie\publish\plugin\TaiwuDpsMeter\_bin\TaiwuDpsMeter.dll
 D:\project\taiwuyishijie\publish\plugin\TaiwuDpsMeter\obj\Release\net6.0\TaiwuDpsMeter.csproj.AssemblyReference.cache
 D:\project\taiwuyishijie\publish\plugin\TaiwuDpsMeter\obj\Release\net6.0\TaiwuDpsMeter.GeneratedMSBuildEditorConfig.editorconfig
 D:\project\taiwuyishijie\publish\plugin\TaiwuDpsMeter\obj\Release\net6.0\TaiwuDpsMeter.AssemblyInfoInputs.cache
 D:\project\taiwuyishijie\publish\plugin\TaiwuDpsMeter\obj\Release\net6.0\TaiwuDpsMeter.AssemblyInfo.cs
 D:\project\taiwuyishijie\publish\plugin\TaiwuDpsMeter\obj\Release\net6.0\TaiwuDpsMeter.csproj.CoreCompileInputs.cache
 D:\project\taiwuyishijie\publish\plugin\TaiwuDpsMeter\obj\Release\net6.0\TaiwuDpsMeter.sourcelink.json
-D:\project\taiwuyishijie\publish\plugin\TaiwuDpsMeter\_bin\TaiwuDpsMeter.deps.json
-D:\project\taiwuyishijie\publish\plugin\TaiwuDpsMeter\_bin\TaiwuDpsMeter.dll
 D:\project\taiwuyishijie\publish\plugin\TaiwuDpsMeter\obj\Release\net6.0\TaiwuDpsMeter.dll
 D:\project\taiwuyishijie\publish\plugin\TaiwuDpsMeter\obj\Release\net6.0\refint\TaiwuDpsMeter.dll
 D:\project\taiwuyishijie\publish\plugin\TaiwuDpsMeter\obj\Release\net6.0\ref\TaiwuDpsMeter.dll
