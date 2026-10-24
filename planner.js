@@ -566,7 +566,7 @@ function renderToolbar(){
   const bIO = el("button", "pl-btn", ui.showIO ? "收起导入导出" : "导出 / 导入");
   bIO.onclick = () => { ui.showIO = !ui.showIO; renderAll(); if(ui.showIO){ const t = $("#pl-io-text"); if(t) t.focus(); } };
   const selLayout = el("select");
-  selLayout.innerHTML = "<option value='card'>排版 · 卡片</option><option value='twocol'>排版 · 双栏</option><option value='minimal'>排版 · 极简</option>";
+  selLayout.innerHTML = "<option value='share'>排版 · 分享卡</option><option value='card'>排版 · 卡片</option><option value='twocol'>排版 · 双栏</option><option value='minimal'>排版 · 极简</option>";
   selLayout.value = LAYOUT;
   selLayout.title = "分享图的排版风格";
   selLayout.onchange = () => { LAYOUT = selLayout.value; try{ localStorage.setItem("taiwu_planner_layout", LAYOUT); }catch(e){} };
@@ -737,8 +737,9 @@ function renderSkillSlot(slot, en, i){
 
 /* ---------- 选择器弹窗（master-detail：左列表 + 右完整详情）---------- */
 let MODAL = null; // {type:"skill"|"equip", slot, cur}
-let LAYOUT = "card";   // 分享图排版：card 卡片 / twocol 双栏 / minimal 极简
-try{ LAYOUT = localStorage.getItem("taiwu_planner_layout") || "card"; }catch(e){}
+let LAYOUT = "share";   // 分享图排版：share 分享卡 / card 卡片 / twocol 双栏 / minimal 极简
+try{ LAYOUT = localStorage.getItem("taiwu_planner_layout") || "share"; }catch(e){}
+if(!["share", "card", "twocol", "minimal"].includes(LAYOUT)) LAYOUT = "share";
 
 function closePlModal(){
   const ov = document.querySelector(".pl-mov");
@@ -1916,6 +1917,256 @@ function drawMinimalLayout(P){
 }
 
 
+/* ---- 布局 D：分享卡（2 列卡片墙 · 角色灵侍 / 功法 / 装备分区，先大画布后裁边）---- */
+function drawShareLayout(P){
+  const { ch, talents, skills, equips, elixirs, cache } = P;
+  const W = 920, PAD = 30, GAP = 14, CW = Math.floor((W - PAD * 2 - GAP) / 2);
+  const petObj = B.pet ? (D.pets.find(p => p.id === B.pet) || null) : null;
+  const F2 = '"Noto Sans SC","Microsoft YaHei","PingFang SC",sans-serif';
+  const C = { bg: "#191916", card: "#21211d", line: "#32322a", gold: "#d2bc84",
+              bright: "#e9e5d6", dim: "#a6a294", faint: "#71705f", lv: "#c8c2ad",
+              green: "#7ec97e", lead: "#3d3c32", hd: "#8f8a76" };
+  const cv = document.createElement("canvas");
+  const mctx = cv.getContext("2d");
+  const setF = (ctx, size, weight, color) => { ctx.font = (weight ? weight + " " : "") + size + "px " + F2; ctx.fillStyle = color; };
+  const mw = (s, size, weight) => { setF(mctx, size, weight, "#fff"); return mctx.measureText(s).width; };
+  const clipF = (s, size, weight, maxW) => {
+    if(mw(s, size, weight) <= maxW) return s;
+    let t = s;
+    while(t.length > 1 && mw(t + "…", size, weight) > maxW) t = t.slice(0, -1);
+    return t + "…";
+  };
+  const wrap = (text, size, maxW) => {
+    setF(mctx, size, "", "#fff");
+    const out = [];
+    String(text).split(/\n/).forEach(par => {
+      let cur = "";
+      for(const chr of par){
+        if(cur && mctx.measureText(cur + chr).width > maxW){ out.push(cur); cur = chr; }
+        else cur += chr;
+      }
+      out.push(cur);
+    });
+    return out.length ? out : [""];
+  };
+  /* 公开版构建会整行删除含公式模板字面量的行，这里用拼接正则规避（公开数据已静态求值，删与不删等价） */
+  const cleanTxt = s => String(s || "").replace(new RegExp("\\{\"f[^{}]*\\}", "g"), "X").replace(/<[^>]*>/g, "").replace(/\s+/g, " ").trim();
+  const rrect = (ctx, x, y, w, h, r) => { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); };
+  const shell = (ctx, x, y, w, h) => {
+    rrect(ctx, x, y, w, h, 10); ctx.fillStyle = C.card; ctx.fill();
+    ctx.strokeStyle = C.line; ctx.lineWidth = 1; ctx.stroke();
+  };
+  /* 卡头：圆角图标 + 名称 + 副题段 + 右上角状态，返回正文起始 y */
+  const head = (ctx, x, y, iconKey, name, subSegs, extra) => {
+    const ic = cache[iconKey];
+    if(ic){ rrect(ctx, x + 14, y + 14, 42, 42, 8); ctx.save(); ctx.clip(); ctx.drawImage(ic, x + 14, y + 14, 42, 42); ctx.restore(); }
+    setF(ctx, 16, "600", C.gold); ctx.textBaseline = "alphabetic"; ctx.textAlign = "left";
+    ctx.fillText(clipF(name, 16, "600", CW - 150), x + 68, y + 32);
+    if(extra){ setF(ctx, 11, "", extra.color || C.faint); ctx.textAlign = "right"; ctx.fillText(extra.text, x + CW - 14, y + 31); ctx.textAlign = "left"; }
+    let cx = x + 68;
+    (subSegs || []).forEach(seg => { setF(ctx, 11.5, seg[2] || "", seg[1]); ctx.fillText(seg[0], cx, y + 50); cx += mw(seg[0], 11.5, seg[2] || ""); });
+    return y + 68;
+  };
+  /* 普通行：小图标（缺图用◆）+ 名称 + 右侧灰标签 */
+  const iconRow = (ctx, x, y, iconKey, name, label) => {
+    const ic = cache[iconKey];
+    if(ic){ rrect(ctx, x + 14, y + 4, 20, 20, 4); ctx.save(); ctx.clip(); ctx.drawImage(ic, x + 14, y + 4, 20, 20); ctx.restore(); }
+    else { setF(ctx, 9, "", C.gold); ctx.fillText("◆", x + 19, y + 18); }
+    setF(ctx, 13, "", C.bright);
+    ctx.fillText(clipF(name, 13, "", CW - 150), x + 42, y + 18);
+    if(label){ setF(ctx, 11.5, "", C.faint); ctx.textAlign = "right"; ctx.fillText(label, x + CW - 14, y + 18); ctx.textAlign = "left"; }
+  };
+  /* 等级行：名称 + 虚线引导 + Lv 值 */
+  const lvRow = (ctx, x, y, iconKey, name, lvText) => {
+    const ic = cache[iconKey];
+    if(ic){ rrect(ctx, x + 14, y + 3, 20, 20, 4); ctx.save(); ctx.clip(); ctx.drawImage(ic, x + 14, y + 3, 20, 20); ctx.restore(); }
+    else { setF(ctx, 9, "", C.gold); ctx.fillText("◆", x + 19, y + 17); }
+    setF(ctx, 13, "", C.bright);
+    const nm = clipF(name, 13, "", CW - 160);
+    ctx.fillText(nm, x + 42, y + 17);
+    setF(ctx, 12, "600", C.lv);
+    ctx.textAlign = "right"; ctx.fillText(lvText, x + CW - 14, y + 17); ctx.textAlign = "left";
+    const x1 = x + 42 + mw(nm, 13, "") + 10, x2 = x + CW - 14 - mw(lvText, 12, "600") - 10;
+    if(x2 > x1 + 12){
+      ctx.strokeStyle = C.lead; ctx.lineWidth = 1; ctx.setLineDash([2, 4]);
+      ctx.beginPath(); ctx.moveTo(x1, y + 13); ctx.lineTo(x2, y + 13); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  };
+  const wrapBlock = (ctx, x, y, text, size, color, maxW, lh) => {
+    const lines = wrap(text, size, maxW);
+    setF(ctx, size, "", color);
+    lines.forEach((ln, i) => ctx.fillText(ln, x, y + i * lh));
+    return y + lines.length * lh;
+  };
+  const secT = (ctx, y, t, n) => {
+    setF(ctx, 16, "600", C.gold); ctx.textBaseline = "alphabetic"; ctx.textAlign = "left";
+    ctx.fillText(t, PAD, y + 15);
+    if(n != null){ setF(ctx, 13, "", C.faint); ctx.fillText(String(n), PAD + mw(t, 16, "600") + 10, y + 15); }
+    return y + 36;
+  };
+
+  /* ---- 角色卡 ---- */
+  const pickedTiers = [];
+  ch.talent_tree.forEach((tier, ti) => {
+    const t = tier.find(x => B.talents[ti] === x.id);
+    if(t) pickedTiers.push({ ti, t });
+  });
+  const topTier = pickedTiers.length ? pickedTiers[pickedTiers.length - 1].ti : -1;
+  const charH = 68 + Math.max(pickedTiers.length, 1) * 30 + 30 + 10;
+  const drawChar = (ctx, x, y, hH) => {
+    shell(ctx, x, y, CW, hH);
+    let cy = head(ctx, x, y, ch.icon ? imgSrc(ch.icon) : "", ch.name,
+      [["角色 · " + (topTier < 0 ? "未选天赋" : topTier === 0 ? "初始绝学" : "境界 " + topTier), C.faint]]);
+    if(pickedTiers.length) pickedTiers.forEach(({ ti, t }) => {
+      iconRow(ctx, x, cy, t.icon ? pl_imgSrc(t.icon) : "", t.name, ti === 0 ? "绝学" : "境界 " + ti);
+      cy += 30;
+    });
+    else { setF(ctx, 12.5, "", C.faint); ctx.fillText("（未选天赋）", x + 14, cy + 18); }
+    ctx.font = "italic 11px " + F2; ctx.fillStyle = C.faint;
+    ctx.fillText("每境界选择 1 项用于规划，互斥与叠加以游戏内效果为准。", x + 14, y + hH - 13);
+  };
+  /* ---- 灵侍卡 ---- */
+  const petRows = petObj
+    ? (petObj.skills || []).map(s => ({ name: s.name, label: "技能" }))
+        .concat((petObj.evolve_skills || []).map(n => ({ name: n, label: "进化" })))
+    : [];
+  const petPassive = petObj ? (petPassiveText(petObj) || cleanTxt(petObj.desc)) : "";
+  const petH = petObj ? 68 + Math.max(petRows.length, 1) * 28 +
+    (petPassive ? wrap(petPassive, 12.5, CW - 46).length * 18 + 8 : 0) + 10 : 0;
+  const drawPet = (ctx, x, y, hH) => {
+    shell(ctx, x, y, CW, hH);
+    let cy = head(ctx, x, y, petObj.icon ? imgSrc(petObj.icon) : "", petObj.name || "灵侍",
+      [[(petObj.kind || "灵侍") + (petObj.species && petObj.species !== "特殊" ? " · " + petObj.species : ""), C.faint]]);
+    if(petRows.length) petRows.forEach(r => { iconRow(ctx, x, cy, "", r.name, r.label); cy += 28; });
+    else { setF(ctx, 12.5, "", C.faint); ctx.fillText("（无技能数据）", x + 14, cy + 18); }
+    if(petPassive) wrapBlock(ctx, x + 14, cy + 14, petPassive, 12.5, C.dim, CW - 46, 18);
+  };
+  /* ---- 功法卡 ---- */
+  const skCards = skills.map(({ s, evo, grad, pts }) => {
+    const en = B.skills.find(x => x.id === s.id) || { lv: [] };
+    const rows = s.upgrades.map((br, bi) => ({ name: branchName(br), lv: en.lv[bi], icon: br.icon })).filter(r => r.lv > 0);
+    return { s, evo, rows, grad, pts, h: 68 + Math.max(rows.length, 1) * 28 + 10 };
+  });
+  const drawSkill = (c, ctx, x, y, hH) => {
+    shell(ctx, x, y, CW, hH);
+    let cy = head(ctx, x, y, c.s.icon ? pl_imgSrc(c.s.icon) : "", c.s.name,
+      [[c.evo ? c.evo.name : (c.s.tags || []).slice(0, 4).join(" / "), C.faint]],
+      { text: c.grad ? "✓ 毕业" : "参悟 " + c.pts + "/9" + (c.evo ? "" : " · 未进化"), color: c.grad ? C.green : C.faint });
+    if(c.rows.length) c.rows.forEach(r => { lvRow(ctx, x, cy, r.icon ? pl_imgSrc(r.icon) : "", r.name, "Lv" + r.lv); cy += 28; });
+    else { setF(ctx, 12.5, "", C.faint); ctx.fillText("（未选分支）", x + 14, cy + 18); }
+  };
+  /* ---- 装备卡：固有数值词条 prop+T2 区间 / 固有特效 ✦ 全文 / 目标词条 ◎ ---- */
+  const eqCards = equips.map(({ slot, e, picked }) => {
+    const rows = [];
+    (e.fixed_traits || []).forEach(t => {
+      if(t.prop && (t.range_t2 || t.range)){
+        // name = 显示名 + T2 区间（如「远程功法伤害 16.965%~21.645%」），比 prop 更能区分同类词条
+        const nm = String(t.name || "").replace(/\s+[-\d.~%]+\s*$/, "").trim() || t.prop;
+        rows.push({ k: "prop", prop: nm, val: t.range_t2 || t.range });
+      }
+      else rows.push({ k: "fx", text: fxText(t) });
+    });
+    (picked || []).forEach(t => rows.push({ k: "pick", text: t }));
+    let h = 68 + 10;
+    rows.forEach(r => { h += r.k === "prop" ? 22 : wrap(r.text, 12.5, CW - 46).length * 18 + (r.k === "fx" ? 6 : 4); });
+    return { slot, e, rows, h };
+  });
+  const drawEquip = (c, ctx, x, y, hH) => {
+    shell(ctx, x, y, CW, hH);
+    head(ctx, x, y, c.e.icon ? imgSrc(c.e.icon) : "", c.e.name,
+      [[SLOT_CAT(c.slot) + " · ", C.faint], [c.e.rarity, IMG.rar[c.e.rarity] || C.faint, "600"]]);
+    let cy = y + 68;
+    c.rows.forEach(r => {
+      if(r.k === "prop"){
+        setF(ctx, 13, "600", C.gold); ctx.fillText(r.prop, x + 14, cy + 13);
+        setF(ctx, 12.5, "", C.bright); ctx.fillText(r.val, x + 14 + mw(r.prop, 13, "600") + 8, cy + 13);
+        cy += 22;
+      }else{
+        setF(ctx, 12.5, "600", C.gold); ctx.fillText(r.k === "fx" ? "✦" : "◎", x + 14, cy + 12);
+        cy = wrapBlock(ctx, x + 32, cy + 12, r.text, 12.5, r.k === "fx" ? C.dim : C.bright, CW - 46, 18) + (r.k === "fx" ? 6 : 4);
+      }
+    });
+  };
+
+  /* ---- 先在大画布上顺序画，再按实际高度裁边 ---- */
+  const estH = 130 + 36 + Math.max(charH, petH)
+    + (skCards.length ? 36 + Math.ceil(skCards.length / 2) * (Math.max(...skCards.map(c => c.h)) + GAP) : 0)
+    + (eqCards.length ? 36 + Math.ceil(eqCards.length / 2) * (Math.max(...eqCards.map(c => c.h)) + GAP) : 0)
+    + (elixirs.length ? 60 + elixirs.length * 38 : 0) + 320;
+  cv.width = W; cv.height = estH;
+  const ctx = cv.getContext("2d");
+  ctx.fillStyle = C.bg; ctx.fillRect(0, 0, W, estH);
+  ctx.textBaseline = "alphabetic"; ctx.textAlign = "left";
+
+  let y = 34;
+  setF(ctx, 12.5, "", C.hd); ctx.fillText("太吾异世劫 · 构筑分享", PAD, y);
+  y += 14;
+  setF(ctx, 26, "600", C.gold);
+  ctx.fillText(clipF(B.name || "未命名构筑", 26, "600", W - PAD * 2), PAD, y + 24);
+  y += 38;
+  setF(ctx, 12.5, "", C.dim);
+  ctx.fillText("功法 " + B.skills.length + "/6　装备 " + Object.keys(B.equips).length + "/10" +
+    (elixirs.length ? "　丹药 " + elixirs.length + "/2" : ""), PAD, y + 14);
+  y += 30;
+
+  y = secT(ctx, y, "角色特质与随行灵侍", 1 + (petObj ? 1 : 0));
+  {
+    const hRow = Math.max(charH, petH);
+    drawChar(ctx, PAD, y, hRow);
+    if(petObj) drawPet(ctx, PAD + CW + GAP, y, hRow);
+    y += hRow + 18;
+  }
+  if(skCards.length){
+    y = secT(ctx, y, "功法配置", skCards.length);
+    for(let r = 0; r * 2 < skCards.length; r++){
+      const pair = [skCards[r * 2], skCards[r * 2 + 1]].filter(Boolean);
+      const hRow = Math.max(...pair.map(c => c.h));
+      pair.forEach((c, k) => drawSkill(c, ctx, PAD + k * (CW + GAP), y, hRow));
+      y += hRow + GAP;
+    }
+    y += 14;
+  }
+  if(eqCards.length){
+    y = secT(ctx, y, "装备配置", eqCards.length);
+    for(let r = 0; r * 2 < eqCards.length; r++){
+      const pair = [eqCards[r * 2], eqCards[r * 2 + 1]].filter(Boolean);
+      const hRow = Math.max(...pair.map(c => c.h));
+      pair.forEach((c, k) => drawEquip(c, ctx, PAD + k * (CW + GAP), y, hRow));
+      y += hRow + GAP;
+    }
+    y += 14;
+  }
+  if(elixirs.length){
+    y = secT(ctx, y, "丹药", elixirs.length);
+    let ex = PAD;
+    elixirs.forEach(n => {
+      const w2 = mw(n, 12.5, "") + 26;
+      if(ex + w2 > W - PAD){ ex = PAD; y += 34; }
+      rrect(ctx, ex, y, w2, 28, 14); ctx.strokeStyle = C.line; ctx.lineWidth = 1; ctx.stroke();
+      setF(ctx, 12.5, "", C.bright); ctx.textBaseline = "middle"; ctx.fillText(n, ex + 13, y + 15); ctx.textBaseline = "alphabetic";
+      ex += w2 + 8;
+    });
+    y += 34 + 14;
+  }
+
+  y += 10;
+  setF(ctx, 11, "", C.faint);
+  ctx.fillText("太吾异世劫 Wiki · BD 构筑台 · 数据 " + ((D.meta || {}).updated || ""), PAD, y + 12);
+  ctx.textAlign = "right";
+  ctx.fillText("生成于 " + new Date().toLocaleDateString("zh-CN"), W - PAD, y + 12);
+  ctx.textAlign = "left";
+  const H = y + 40;
+
+  const out = document.createElement("canvas");
+  out.width = W; out.height = H;
+  const octx = out.getContext("2d");
+  octx.fillStyle = C.bg; octx.fillRect(0, 0, W, H);
+  octx.drawImage(cv, 0, 0);
+  return out;
+}
+
+
 const IMG = {
   bg: "#14100c", panel: "#221c15", panel2: "#2a231a", line: "#3a3125",
   gold: "#c9a86a", goldDim: "#8f7a52", red: "#de5a4e", green: "#7ec97e",
@@ -1947,6 +2198,10 @@ async function exportBuildImage(){
   const need = [];
   if(ch.icon) need.push(imgSrc(ch.icon));
   B.skills.forEach(en => { const s = SKILL_BY_ID.get(en.id); if(s && s.icon) need.push(pl_imgSrc(s.icon)); });
+  B.skills.forEach(en => { const s = SKILL_BY_ID.get(en.id); if(s) s.upgrades.forEach((br, bi) => { if(en.lv[bi] && br.icon) need.push(pl_imgSrc(br.icon)); }); });
+  ch.talent_tree.forEach((tier, ti) => { const t = tier.find(x => B.talents[ti] === x.id); if(t && t.icon) need.push(pl_imgSrc(t.icon)); });
+  const ptExp = B.pet ? D.pets.find(p => p.id === B.pet) : null;
+  if(ptExp && ptExp.icon) need.push(imgSrc(ptExp.icon));
   SLOT_ORDER.forEach(sl => { const o = equipOf(sl); if(o){ const e = EQUIP_BY_ID.get(o.id); if(e && e.icon) need.push(imgSrc(e.icon)); } });
   await Promise.all(need.map(load));
 
@@ -2026,7 +2281,12 @@ async function exportBuildImage(){
     return y + 52;
   };
 
-  // ---- 排版分叉：双栏 / 极简 走独立绘制 ----
+  // ---- 排版分叉：分享卡 / 双栏 / 极简 走独立绘制 ----
+  if(LAYOUT === "share"){
+    const pack = { ch, talents, skills, equips, elixirs, tagCount, pet, cache, tw, clip };
+    await finishExport(drawShareLayout(pack));
+    return;
+  }
   if(LAYOUT === "twocol" || LAYOUT === "minimal"){
     const pack = { ch, talents, skills, equips, elixirs, tagCount, pet, cache, tw, clip };
     await finishExport(LAYOUT === "twocol" ? drawTwoColLayout(pack) : drawMinimalLayout(pack));
