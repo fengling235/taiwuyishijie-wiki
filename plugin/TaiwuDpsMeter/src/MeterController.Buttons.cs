@@ -164,6 +164,88 @@ switch (b.Action)
                 Plugin.Log.LogInfo($"[dummy] 木桩防斩杀 → {(on ? "开（处决对木桩无效）" : "关（斩杀可杀死木桩）")}");
                 break;
             }
+            case ButtonAction.DummyToggle:
+            {
+                bool on = Plugin.CfgDummyMode?.Value != true;
+                string err = DummyController.SetMode(on);
+                if (err == null)
+                {
+                    Plugin.CfgDummyMode.Value = on;
+                    TuningCache.ForceRefresh(); // DummyOn 立即进缓存：木桩创建链（Initialize→NoteSpawn）要同帧读到新值，250ms 延迟会漏标记
+                    try { Plugin.ConfigFile?.Save(); } catch { /* 忽略 */ }
+                    ShowToast(on ? "✓ 木桩已开启（停刷+清场+召唤）" : "✓ 木桩已关闭（刷怪已恢复）", true);
+                }
+                else
+                {
+                    Plugin.Log.LogWarning($"[dummy] 木桩模式切换失败：{err}（配置未改）");
+                    ShowToast("✗ " + err, false);
+                }
+                break;
+            }
+            case ButtonAction.LevelJump:
+            {
+                string err = LevelTools.SetLevel(100);
+                if (err != null) { Plugin.Log.LogWarning($"[level] 升级失败：{err}"); ShowToast("✗ " + err, false); }
+                else ShowToast("✓ 经验已灌入，等级结算中", true);
+                break;
+            }
+            case ButtonAction.LoadBuild:
+            {
+                string err = BuildLoader.ApplyFromFile();
+                if (err == null) { Plugin.Log.LogInfo("[build] 装配完成（槽位/伤害表现随开火生效；词条全链+进化已直设）"); ShowToast(BuildLoader.LastSummary, true); }
+                else { Plugin.Log.LogWarning($"[build] 装配失败：{err}"); ShowToast("✗ " + err, false); }
+                break;
+            }
+            case ButtonAction.VfxToggle:
+            {
+                TuningCache.VfxOff = off;
+                try { Plugin.ConfigFile?.Save(); } catch { /* 忽略 */ }
+                Plugin.Log.LogInfo($"[vfx] 一次性特效 → {(off ? "关闭（性能模式：死亡/命中/爆炸特效不再播放）" : "开启")}");
+                ShowToast(off ? "✓ 特效已关闭（换帧数）" : "✓ 特效已开启", true);
+                break;
+            }
+            case ButtonAction.SummonShield:
+            {
+                TuningCache.ForceRefresh(); // 碰撞 hook 读缓存，开关立即生效
+                try { Plugin.ConfigFile?.Save(); } catch { /* 忽略 */ }
+                break;
+            }
+            case ButtonAction.ZhuijiaToggle:
+            case ButtonAction.GlobalDmgToggle:
+            {
+                bool zhuijia = a == ButtonAction.ZhuijiaToggle;
+                int next = Math.Clamp(cur + 1, 0, 50);
+                string err = BuffGift.SetStacks(zhuijia, next);
+                if (err == null) ShowToast($"✓ {(zhuijia ? "追击" : "伤害")}+{next * 100}%（再点继续加，右键输层数/0清零）", true);
+                else { Plugin.Log.LogWarning($"[buff] 层数调整失败：{err}"); ShowToast("✗ " + err, false); }
+                break;
+            }
+            case ButtonAction.GiveEquip:
+            {
+                // 左键=重发上一次成功的装备（没发过=提示右键用法）
+                if (string.IsNullOrEmpty(GiveEquipment.LastGiven))
+                {
+                    ShowToast("右键「发装备」：先复制装备中文名", true);
+                    break;
+                }
+                string err = GiveEquipment.Give(GiveEquipment.LastGiven);
+                if (err == null) ShowToast(GiveEquipment.LastSummary + " 已再次入包", true);
+                else { Plugin.Log.LogWarning($"[give] 重发失败：{err}"); ShowToast("✗ " + err, false); }
+                break;
+            }
+            case ButtonAction.DummyRefresh:
+            {
+                string err = DummyController.Refresh();
+                if (err == null) ShowToast("✓ 木桩已刷新（全新零buff）", true);
+                else { Plugin.Log.LogWarning($"[dummy] 刷新失败：{err}"); ShowToast("✗ " + err, false); }
+                break;
+            }
+            case ButtonAction.SimStart:
+                _demoRunning = true;
+                _demoPaused = false;
+                _nextDemoMs = -1;
+                break;
+#endif // !PUBLIC
             case ButtonAction.ClearData:
                 _ledger.Reset();
                 _registry.Reset();
@@ -177,7 +259,7 @@ switch (b.Action)
                 _uiScale = 1f;
                 _panelRect.localScale = Vector3.one;
                 if (_toolboxRect != null) _toolboxRect.localScale = Vector3.one; // 工具箱跟随重置缩放
-                _panelRect.anchoredPosition = new Vector2(0.02f * Screen.width, -0.04f * Screen.height);
+                _panelRect.anchoredPosition = new Vector2(0.02f * Screen.width, -0.45f * Screen.height);
                 SaveUiPos();
                 break;
         }

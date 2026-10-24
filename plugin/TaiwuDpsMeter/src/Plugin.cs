@@ -64,7 +64,7 @@ public class Plugin : BasePlugin
         CfgTreeExpanded = Config.Bind("UI", "TreeExpanded", true, "启动时二级明细是否展开");
         CfgAggregateSquire = Config.Bind("Stats", "AggregateSquireToOwner", false, "一级玩家行是否并入随从合计（二级明细始终分立展示）");
         CfgPanelX = Config.Bind("UI", "PanelX", 0.02f, "面板左上角 X（屏幕宽度占比，拖拽后自动更新）");
-        CfgPanelY = Config.Bind("UI", "PanelY", 0.04f, "面板左上角 Y（屏幕高度占比，拖拽后自动更新）");
+        CfgPanelY = Config.Bind("UI", "PanelY", 0.45f, "面板左上角 Y（屏幕高度占比，拖拽后自动更新）");
         CfgUIScale = Config.Bind("UI", "UIScale", 1.0f, "面板缩放（0.6~2.0，拖右下角◢或滚轮调整后自动更新）");
         CfgToolboxOpen = Config.Bind("UI", "ToolboxOpen", false, "工具箱面板是否展开（标题行「工具箱」键切换，状态记忆）");
         CfgToolboxTab = Config.Bind("UI", "ToolboxTab", 0, "工具箱当前标签页（0=难度 1=环境 2=构筑 3=调试 4=曲线）");
