@@ -30,27 +30,7 @@ public partial class MeterController
         else if (_bossPanel != null && _bossPanel.activeSelf)
             _bossPanel.SetActive(false);
 
-        // 工具箱：只跟总显隐走、不随 DPS 开关藏（关统计后仍可调怪物属性——2026-10-21 用户反馈）；
-        // 未拖拽过（X<0）时贴主面板右侧（主面板隐藏时 rect 值仍在，公式照常）；高度随当前 tab 行数收缩
-        if (_toolboxPanel != null)
-        {
-            bool tshow = uiAlive && _toolboxOpen;
-            if (_toolboxPanel.activeSelf != tshow) _toolboxPanel.SetActive(tshow);
-            if (tshow)
-            {
-                if ((Plugin.CfgToolboxX?.Value ?? -1f) < 0f)
-                    _toolboxRect.anchoredPosition = ClampPos(
-                        new Vector2(_panelRect.anchoredPosition.x + PanelW * _uiScale + 12f, -_panelRect.anchoredPosition.y),
-                        TbW * _uiScale, 100f);
-                int rows = 1;
-                foreach (var e in TbLayout)
-                    if (e.Tab == _toolboxTab && e.Row + 1 > rows) rows = e.Row + 1;
-                float tbh = 66f + (rows - 1) * 32f;
-                if (Math.Abs(_toolboxRect.sizeDelta.y - tbh) > 0.5f)
-                    _toolboxRect.sizeDelta = new Vector2(TbW, tbh);
-            }
-        }
-        UpdateButtons(); // 工具箱按钮可见性/状态每帧都要刷——DPS 关闭、主面板隐藏时也不能停（tab 切换靠它）
+        UpdateButtons(); // 按钮可见性/状态每帧都要刷——主面板隐藏时也不能停
         if (!show) return;
 
         string mode = _hostMode ? "房主 · 按人" : "客人 · 全队(无归属,含敌方)";
@@ -73,10 +53,8 @@ public partial class MeterController
                 summary += $"   溢出 {(1 - actual / _ledger.GuestTeamDamage) * 100:F1}%";
         }
         _summaryText.text = summary;
-        if (!_inputMode && _teamPeakDps > 0)
+        if (_teamPeakDps > 0)
             _summaryText.text += $"   峰值 {Fmt(_teamPeakDps)}/s";
-        if (_inputMode)
-            _summaryText.text = $"✏ 输入 {TuneLabel(_inputTargetAction)}：{_inputBuf}_   （回车=生效 · Esc=取消 · 退格删 · 减号切正负）";
 
         int burstWin = Math.Clamp(Plugin.CfgBurstWindow?.Value ?? 10, 5, 30);
         SetHeader(_view == 0
@@ -216,15 +194,18 @@ public partial class MeterController
             bool expanded = IsExpanded(top.Actor.Uid);
             string marker = hasChildren ? (expanded ? "▼ " : "▶ ") : "  ";
             double share = grand > 0 ? top.Total / grand * 100.0 : 0;
-            // 一级暴击=滚动窗口（玩家+随从各环合并，锚在全员最后一跳）：局内暴击加成会变，全程均值没意义
+            // 一级暴击=滚动窗口（玩家+随从各环合并，锚在全员最后一跳）：真实概率均值优先（可>100%，
+            // 2026-10-25 三改——用户点名暴击列要能超 100，观察频率做退路）；局内暴击加成会变，全程均值没意义
             var topRings = new List<Ledger.CritRing> { top.Actor.Ring };
+            var topChances = new List<Ledger.CritChanceRing> { top.Actor.ChanceRing };
             double topAnchor = top.Actor.LastEventMs;
             foreach (var f in followerOf[top.Actor.Uid])
             {
                 topRings.Add(f.Actor.Ring);
+                topChances.Add(f.Actor.ChanceRing);
                 if (f.Actor.LastEventMs > topAnchor) topAnchor = f.Actor.LastEventMs;
             }
-            string critRate = CritPct(topRings, topAnchor);
+            string critRate = CritRateCell(topRings, topChances, topAnchor);
             double topBurst = top.Actor.Burst.Sum(now, burstWin);
             foreach (var fb in followerOf[top.Actor.Uid]) topBurst += fb.Actor.Burst.Sum(now, burstWin);
             // 一级行始终显示含随从的合计：收起时随从明细藏起但不丢数字，本体细分看二级功法行
@@ -249,8 +230,8 @@ public partial class MeterController
             // ①晚期解锁的功法不冤枉 ②单跳技能也不会除以 1 秒虚高 ③DPS 排序≠总伤排序，有意义。
             double ownBase = top.Actor.TotalDamage;
             double rowEndMs = top.Actor.LastEventMs;
-            var detailRows = new List<(string Label, double Damage, bool IsTrigger, double FirstMs, List<Ledger.CritRing> Rings, List<Ledger.RollingWindow> Bursts, string SettleRecent)>();
-            var fams = new Dictionary<string, (string Label, double Damage, double FirstMs, List<Ledger.CritRing> Rings, List<Ledger.RollingWindow> Bursts)>();
+            var detailRows = new List<(string Label, double Damage, bool IsTrigger, double FirstMs, List<Ledger.CritRing> Rings, List<Ledger.CritChanceRing> Chances, List<Ledger.RollingWindow> Bursts, string SettleRecent)>();
+            var fams = new Dictionary<string, (string Label, double Damage, double FirstMs, List<Ledger.CritRing> Rings, List<Ledger.CritChanceRing> Chances, List<Ledger.RollingWindow> Bursts)>();
             foreach (var sk in top.Actor.BySkill.Values)
             {
                 if (sk.SkillIndex < 0) continue;
@@ -262,33 +243,35 @@ public partial class MeterController
                 if (fams.TryGetValue(fam, out var f))
                 {
                     f.Rings.Add(sk.Ring);
+                    f.Chances.Add(sk.ChanceRing);
                     f.Bursts.Add(sk.Burst);
-                    fams[fam] = (f.Label, f.Damage + sk.Damage, Math.Min(f.FirstMs, sk.FirstMs), f.Rings, f.Bursts);
+                    fams[fam] = (f.Label, f.Damage + sk.Damage, Math.Min(f.FirstMs, sk.FirstMs), f.Rings, f.Chances, f.Bursts);
                 }
                 else
                 {
-                    fams[fam] = (label, sk.Damage, sk.FirstMs, new List<Ledger.CritRing> { sk.Ring }, new List<Ledger.RollingWindow> { sk.Burst });
+                    fams[fam] = (label, sk.Damage, sk.FirstMs, new List<Ledger.CritRing> { sk.Ring }, new List<Ledger.CritChanceRing> { sk.ChanceRing }, new List<Ledger.RollingWindow> { sk.Burst });
                 }
             }
             // 结算触发后缀+近窗计数（2026-10-24）：功法行名字带累计结算次数（毒N 爆N 外N），
-            // 第 8 列=近 N 秒该功法的结算触发次数（与近N秒 DPS 同窗口）
+            // 第 8 列=近 N 秒该功法的结算触发次数（与近N秒 DPS 同窗口）；
+            // 暴击列=真实概率滚动均值（2026-10-25 三改，可>100%）
             foreach (var fk in fams)
             {
                 var f = fk.Value;
-                detailRows.Add((f.Label + SettlementLedger.SuffixFor(top.Actor.Uid, fk.Key), f.Damage, false, f.FirstMs, f.Rings, f.Bursts,
+                detailRows.Add((f.Label + SettlementLedger.SuffixFor(top.Actor.Uid, fk.Key), f.Damage, false, f.FirstMs, f.Rings, f.Chances, f.Bursts,
                     SettlementLedger.RecentSuffixFor(top.Actor.Uid, fk.Key, now, burstWin)));
             }
             if (top.Actor.ByTrigger.Count > 0)
             {
                 foreach (var tr in top.Actor.ByTrigger.Values)
-                    detailRows.Add((TriggerNames.Get(tr.Name), tr.Damage, true, tr.FirstMs, new List<Ledger.CritRing> { tr.Ring }, new List<Ledger.RollingWindow> { tr.Burst }, null));
+                    detailRows.Add((TriggerNames.Get(tr.Name), tr.Damage, true, tr.FirstMs, new List<Ledger.CritRing> { tr.Ring }, new List<Ledger.CritChanceRing> { tr.ChanceRing }, new List<Ledger.RollingWindow> { tr.Burst }, null));
             }
             else if (top.Actor.BySkill.TryGetValue(-1, out var noSkill))
             {
-                detailRows.Add(("触发/无功法", noSkill.Damage, true, noSkill.FirstMs, new List<Ledger.CritRing> { noSkill.Ring }, new List<Ledger.RollingWindow> { noSkill.Burst }, null));
+                detailRows.Add(("触发/无功法", noSkill.Damage, true, noSkill.FirstMs, new List<Ledger.CritRing> { noSkill.Ring }, new List<Ledger.CritChanceRing> { noSkill.ChanceRing }, new List<Ledger.RollingWindow> { noSkill.Burst }, null));
             }
 
-            double RowDps((string L, double D, bool T, double F, List<Ledger.CritRing> R, List<Ledger.RollingWindow> B, string S) r) =>
+            double RowDps((string L, double D, bool T, double F, List<Ledger.CritRing> R, List<Ledger.CritChanceRing> C, List<Ledger.RollingWindow> B, string S) r) =>
                 r.D / Math.Max((rowEndMs - r.F) / 1000.0, 1.0);
 
             // 明细行混排：功法/触发一个池子按行 DPS 降序取 top（行类型只影响占比条颜色）。
@@ -305,7 +288,7 @@ public partial class MeterController
                     Fmt(row.Damage),
                     Fmt(RowDps(row)),
                     skShare.ToString("F1", Inv) + "%",
-                    CritPct(row.Rings, top.Actor.LastEventMs),
+                    CritRateCell(row.Rings, row.Chances, top.Actor.LastEventMs),
                     "",
                     Fmt(rowBurst / burstWin),
                     row.SettleRecent ?? "");
@@ -323,7 +306,7 @@ public partial class MeterController
                     Fmt(f.Actor.TotalDamage),
                     Fmt(fDps),
                     fShare.ToString("F1", Inv) + "%",
-                    CritPct(new List<Ledger.CritRing> { f.Actor.Ring }, f.Actor.LastEventMs),
+                    CritRateCell(new List<Ledger.CritRing> { f.Actor.Ring }, new List<Ledger.CritChanceRing> { f.Actor.ChanceRing }, f.Actor.LastEventMs),
                     f.Actor.Kills.ToString(Inv),
                     Fmt(f.Actor.Burst.Sum(now, burstWin) / burstWin));
             }

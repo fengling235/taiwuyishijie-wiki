@@ -20,7 +20,6 @@ public partial class MeterController
         {
             var kb = Keyboard.current;
             if (kb == null) return;
-            if (_inputMode) { HandleTuneInput(kb); return; } // 输入模式下吞掉所有按键（含F键，防误触面板开关）
             if (_kToggle == Key.None && _kReset == Key.None && _kView == Key.None && _kTree == Key.None && _kDps == Key.None) return;
 
             if (KeyPressed(kb, _kToggle)) _visible = !_visible;
@@ -110,7 +109,6 @@ public partial class MeterController
             if (!Plugin.CfgShowPanel.Value || !_visible)
             {
                 _dragMove = _dragScale = false;
-                _dragToolbox = false;
                 return;
             }
 
@@ -126,17 +124,7 @@ public partial class MeterController
             float w = rt.sizeDelta.x * s;
             float h = rt.sizeDelta.y * s;
 
-            // 工具箱面板矩形（与主面板同缩放；命中/拖拽独立坐标系）
-            float tbx = 0f, tby = 0f, tbw = 0f, tbh = 0f;
-            bool tbReady = _toolboxRect != null;
-            if (tbReady)
-            {
-                tbx = _toolboxRect.anchoredPosition.x;
-                tby = -_toolboxRect.anchoredPosition.y;
-                tbw = _toolboxRect.sizeDelta.x * s;
-                tbh = _toolboxRect.sizeDelta.y * s;
-            }
-            bool inToolbox = tbReady && _toolboxOpen && PointInRect(mouse, tbx, tby, tbw, tbh);
+            const bool inToolbox = false; // 公开版无工具箱面板
 
             // 滚轮：悬停面板时缩放（与拖拽互斥）
             float wheel = 0f;
@@ -157,27 +145,12 @@ public partial class MeterController
                 if (!pressed) { _dragMove = false; SaveUiPos(); }
                 else rt.anchoredPosition = ClampPos(mouse + _dragOffset, w, h);
             }
-            else if (_dragToolbox)
-            {
-                if (!pressed) { _dragToolbox = false; SaveToolboxPos(); }
-                else _toolboxRect.anchoredPosition = ClampPos(mouse + _tbDragOffset, tbw, tbh);
-            }
-            else if (TryStartTuneInput(mouse))
-            {
-                // 右键点中调整按钮 → 进入数值直输模式（本帧不再处理左键）
-            }
             else if (justPressed)
             {
-                if (_inputMode) CancelTuneInput(); // 输入中点左键=取消
                 var btn = HitButton(mouse);
                 if (btn.HasValue)
                 {
                     RunButton(btn.Value);
-                }
-                else if (inToolbox)
-                {
-                    _dragToolbox = true; // 工具箱空白处按住拖动（位置存配置）
-                    _tbDragOffset = new Vector2(tbx - mouse.x, tby - mouse.y);
                 }
                 else if (HitMarker(mouse, x, y, s, out int uid))
                 {
@@ -230,9 +203,6 @@ public partial class MeterController
     {
         _uiScale = Mathf.Clamp(v, 0.6f, 2f);
         _panelRect.localScale = new Vector3(_uiScale, _uiScale, 1f);
-        // 工具箱必须同步缩放：否则视觉是旧缩放、点击命中按新 _uiScale 计算 → 点击错位
-        if (_toolboxRect != null)
-            _toolboxRect.localScale = new Vector3(_uiScale, _uiScale, 1f);
         if (save) SaveUiPos();
     }
 
@@ -257,53 +227,7 @@ public partial class MeterController
         catch { /* 配置写不进去就算了，本次会话内仍生效 */ }
     }
 
-    private void SaveToolboxPos()
-    {
-        try
-        {
-            var p = _toolboxRect.anchoredPosition;
-            Plugin.CfgToolboxX.Value = p.x / Screen.width;
-            Plugin.CfgToolboxY.Value = -p.y / Screen.height;
-            Plugin.ConfigFile?.Save();
-        }
-        catch { /* 配置写不进去就算了，本次会话内仍生效 */ }
-    }
 
-    /// <summary>右键点中可调参数按钮 → 进入数值直输（返回是否消费了本帧右键）。</summary>
-    private bool TryStartTuneInput(Vector2 mouse)
-    {
-        bool rightPressed = false;
-        try
-        {
-            var m = Mouse.current;
-            rightPressed = m != null && m.rightButton.wasPressedThisFrame;
-        }
-        catch { /* 无右键 */ }
-        if (!rightPressed) return false;
-        var btn = HitButton(mouse);
-        if (!btn.HasValue) return false;
-        if (btn.Value == ButtonAction.DummyToggle)
-        {
-            // 右键「木桩」= 输入木桩数量（开着立即多退少补）
-            _inputMode = true;
-            _inputTargetAction = ButtonAction.DummyToggle;
-            _inputBuf = (Plugin.CfgDummyCount?.Value ?? 1).ToString(Inv);
-            return true;
-        }
-        if (btn.Value == ButtonAction.LoadBuild)
-        {
-            // 右键「装配BD」= 直接读剪贴板装配（wiki 复制 JSON → 右键即装，不走输入模式）
-            string err = BuildLoader.ApplyFromClipboard();
-            if (err == null) { Plugin.Log.LogInfo("[build] 剪贴板构筑已装配（左键=读文件版）"); ShowToast(BuildLoader.LastSummary, true); }
-            else { Plugin.Log.LogWarning($"[build] 剪贴板装配失败：{err}"); ShowToast("✗ " + err, false); }
-            return true;
-        }
-        if (!IsTunable(btn.Value)) return false;
-        _inputMode = true;
-        _inputTargetAction = btn.Value;
-        _inputBuf = CurrentTuneValue(btn.Value).ToString("0.###", Inv);
-        return true;
-    }
 
     /// <summary>操作反馈浮层：面板右上角显示 4 秒（盖住模式文字），成功绿/失败红。</summary>
     private void ShowToast(string msg, bool ok)
@@ -320,96 +244,4 @@ public partial class MeterController
         catch { /* toast 失败无碍 */ }
     }
 
-    // 公开版：可调项只剩木桩（数量）
-    private static bool IsTunable(ButtonAction a) => a is ButtonAction.DummyToggle;
-
-    private static string TuneLabel(ButtonAction a) => a switch
-    {
-        ButtonAction.DummyToggle => "木桩数量",
-        _ => "参数",
-    };
-
-    private static float CurrentTuneValue(ButtonAction a) => a switch
-    {
-        _ => 1f, // 公开版不可达（IsTunable 只放行 DummyToggle，且 DummyToggle 在 TryStartTuneInput 早退）——留安全兜底防未来加项漏写
-    };
-
-    private static (float Min, float Max) TuneRange(ButtonAction a) => a switch
-    {
-        _ => (0.05f, 10f),
-    };
-
-    private void ApplyTuneValue(ButtonAction a, float v)
-    {
-        switch (a)
-        {
-            // 公开版无可调浮点项：木桩数量走 HandleTuneInput 的 DummyToggle 整数分支就地处理，不经此处
-        }
-        try { Plugin.ConfigFile?.Save(); } catch { /* 存不进就算了，本次会话内仍生效 */ }
-    }
-
-    private void CancelTuneInput()
-    {
-        _inputMode = false;
-        _inputBuf = "";
-    }
-
-    private void HandleTuneInput(Keyboard kb)
-    {
-        for (int i = 0; i <= 9; i++)
-        {
-            if (KeyPressed(kb, Key.Digit0 + i) || KeyPressed(kb, Key.Numpad0 + i)) { _inputBuf += i.ToString(); return; }
-        }
-        if (KeyPressed(kb, Key.Period) || KeyPressed(kb, Key.NumpadPeriod) || KeyPressed(kb, Key.Comma))
-        {
-            if (!_inputBuf.Contains(".")) _inputBuf += ".";
-            return;
-        }
-        // 减号不走 KeyPressed 枚举表：本 interop 的 Key 枚举没有 Minus/NumpadSubtract 成员（Unity 6 精简），
-        // 但 Keyboard 的 minusKey/numpadMinusKey 属性存在——直接读属性
-        if (kb.minusKey.wasPressedThisFrame || kb.numpadMinusKey.wasPressedThisFrame)
-        {
-            // 负号=开头切换正负（曲线负斜率用；整数类输入回车校验会自然拦掉）
-            _inputBuf = _inputBuf.StartsWith("-") ? _inputBuf[1..] : "-" + _inputBuf;
-            return;
-        }
-        if (KeyPressed(kb, Key.Backspace))
-        {
-            if (_inputBuf.Length > 0) _inputBuf = _inputBuf[..^1];
-            return;
-        }
-        if (KeyPressed(kb, Key.Escape))
-        {
-            CancelTuneInput();
-            Plugin.Log.LogInfo("[tune] 输入取消");
-            return;
-        }
-        if (KeyPressed(kb, Key.Enter) || KeyPressed(kb, Key.NumpadEnter))
-        {
-            if (_inputTargetAction == ButtonAction.DummyToggle)
-            {
-                if (int.TryParse(_inputBuf, NumberStyles.Integer, Inv, out var n) && n >= 1 && n <= 16)
-                {
-                    string err = DummyController.AdjustCount(n);
-                    if (err == null) { Plugin.Log.LogInfo($"[dummy] 木桩数量 → {n}（已调整）"); ShowToast($"✓ 木桩×{n}", true); }
-                    else { Plugin.Log.LogWarning($"[dummy] 数量调整失败：{err}（配置未改）"); ShowToast("✗ " + err, false); }
-                }
-                else { Plugin.Log.LogWarning($"[dummy] 「{_inputBuf}」不是 1~16 的整数，已取消"); ShowToast("✗ 需 1~16 整数", false); }
-                CancelTuneInput();
-                return;
-            }
-            if (float.TryParse(_inputBuf, NumberStyles.Float, Inv, out var v))
-            {
-                var (min, max) = TuneRange(_inputTargetAction);
-                v = Mathf.Clamp(v, min, max);
-                ApplyTuneValue(_inputTargetAction, v);
-                Plugin.Log.LogInfo($"[tune] {TuneLabel(_inputTargetAction)} → ×{v:0.###}（直输）");
-            }
-            else
-            {
-                Plugin.Log.LogWarning($"[tune] 「{_inputBuf}」不是有效数字，已取消");
-            }
-            CancelTuneInput();
-        }
-    }
 }

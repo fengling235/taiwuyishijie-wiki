@@ -62,12 +62,12 @@ public partial class MeterController
 
             _summaryText = MakeCell(12f, -28f, PanelW - 24f, 18f, TextAnchor.UpperLeft, ColAccent, 14, true);
 
-            // 标题行右侧四键：DPS统计开关 / 工具箱 / Boss 面板开关 / 清空数据。其余键全部在工具箱面板。
+            // 标题行右侧功能键：DPS统计开关 / [工具箱] / Boss 面板开关 / 清空数据。
             // 图标用中文短标签：YaHei 没有 ⚙/↺ 字形，会渲染成豆腐块。
             MakeButton(ButtonAction.DpsToggle, 462f, 48f, "DPS ✓", -5f, 18f, -1);
-            MakeButton(ButtonAction.ToolboxToggle, 514f, 52f, "工具箱", -5f, 18f, -1);
-            MakeButton(ButtonAction.BossToggle, 570f, 58f, "Boss ✓", -5f, 18f, -1);
-            MakeButton(ButtonAction.ClearData, 632f, 44f, "清空", -5f, 18f, -1);
+            // 公开版无工具箱：三键紧凑排在标题行右侧
+            MakeButton(ButtonAction.BossToggle, 516f, 58f, "Boss ✓", -5f, 18f, -1);
+            MakeButton(ButtonAction.ClearData, 578f, 44f, "清空", -5f, 18f, -1);
 
             for (int c = 0; c < ColX.Length; c++)
                 _headerCells.Add(MakeCell(ColX[c], HeaderY, ColW[c], 16f, CellAlign(c), ColHeader, 12, false));
@@ -115,7 +115,6 @@ public partial class MeterController
 
             _uiReady = true;
             BuildBossPanel(rootGo, alpha, rounded);
-            BuildToolboxPanel(rootGo, alpha, rounded);
             Plugin.Log.LogInfo($"UI 创建成功（字体：{_font.name}，圆角：{rounded != null}，宿主模式检测：{_hostMode}）");
         }
         catch (Exception e)
@@ -164,12 +163,6 @@ public partial class MeterController
             var t = MakeCell(x, y, w, h, TextAnchor.MiddleCenter, new Color(0.92f, 0.94f, 1f), 12, false, parent);
             t.text = label;
             _buttons.Add(new UiButton { Root = img.gameObject, Rt = img.rectTransform, Img = img, Label = t, Action = action, Panel = panel, Tab = tab });
-            if (tab >= 0)
-            {
-                // 内容键初始只显示当前 tab（首个 Render 前不闪别的页；此后可见性由 UpdateButtons 全权管理）
-                img.gameObject.SetActive(tab == _toolboxTab);
-                t.gameObject.SetActive(tab == _toolboxTab);
-            }
         }
         catch (Exception e)
         {
@@ -178,61 +171,5 @@ public partial class MeterController
         }
     }
 
-    // ---------------------------------------------------------------- 工具箱面板（20 键按 4 个 tab 分组）
-
-    private static readonly string[] TbTabNames = { "环境", "构筑", "调试" };
-
-    /// <summary>
-    /// 工具箱内容布局：tab × 网格(列0-2, 行0-2)。标签/交互语义与旧工具栏一致（左键循环/开关，右键直输）。
-    /// 可见性=整组 SetActive(false)（tab 互斥），HitButton 跳过 inactive——旧「同 y 重叠点错键」事故结构性根除。
-    /// </summary>
-    private static readonly (ButtonAction Action, string Label, int Tab, int Col, int Row)[] TbLayout =
-{
-        // 公开版（本地全量/线上删减）：只保留 木桩/刷木桩/防斩杀 + 装配BD + DPS开关/重置窗口
-        (ButtonAction.DummyToggle, "木桩关", 1, 0, 0),
-        (ButtonAction.DummyRefresh, "刷木桩", 1, 1, 0),
-        (ButtonAction.DummyGuardToggle, "防斩杀:开", 1, 2, 0),
-        (ButtonAction.LoadBuild, "装配BD", 2, 0, 0),
-        (ButtonAction.DpsToggle, "DPS ✓", 3, 0, 0),
-        (ButtonAction.ResetWindow, "重置窗口", 3, 1, 0),
-    };
-
-    private void BuildToolboxPanel(GameObject rootGo, float alpha, Sprite rounded)
-    {
-        var tp = new GameObject("ToolboxPanel");
-        tp.transform.SetParent(rootGo.transform, false);
-        var trt = tp.AddComponent<RectTransform>();
-        trt.anchorMin = new Vector2(0f, 1f);
-        trt.anchorMax = new Vector2(0f, 1f);
-        trt.pivot = new Vector2(0f, 1f);
-        // X<0 = 用户还没拖过：给个兜底位，Render 里改为贴主面板右侧；一旦拖拽落盘就固定
-        float tx = Plugin.CfgToolboxX?.Value ?? -1f;
-        trt.anchoredPosition = new Vector2(
-            (tx < 0f ? 0.36f : tx) * Screen.width,
-            -(Plugin.CfgToolboxY?.Value ?? 0.04f) * Screen.height);
-        trt.sizeDelta = new Vector2(TbW, 130f);
-        var tbg = tp.AddComponent<Image>();
-        tbg.color = new Color(0.07f, 0.085f, 0.12f, alpha);
-        tbg.raycastTarget = false; // 完全点击穿透铁律（canvas 本就无 GraphicRaycaster）
-        if (rounded != null)
-        {
-            tbg.sprite = rounded;
-            tbg.type = Image.Type.Sliced;
-        }
-        trt.localScale = new Vector3(_uiScale, _uiScale, 1f);
-        _toolboxPanel = tp;
-        _toolboxRect = trt;
-
-        // tab 行：难度/环境/构筑/调试 + 右侧 × 关闭
-        for (int i = 0; i < TbTabNames.Length; i++)
-            MakeButton((ButtonAction)((int)ButtonAction.TabDifficulty + 1 + i), 8f + i * 52f, 48f, TbTabNames[i], TbTabY, 22f, -2, tp.transform, trt); // 公开版 tab：环境/构筑/调试（枚举序 1-3）
-        MakeButton(ButtonAction.TbClose, TbW - 38f, 30f, "×", TbTabY, 22f, -2, tp.transform, trt);
-
-        foreach (var e in TbLayout)
-            MakeButton(e.Action, 8f + e.Col * 110f, 104f, e.Label, TbRowTop - e.Row * 32f, 26f, e.Tab, tp.transform, trt);
-
-        // 曲线页预览行（非按钮）：渲染时更新为 局内分钟 + 各轴实时因子
-
-        tp.SetActive(_toolboxOpen);
-    }
+    // ---------------------------------------------------------------- 工具箱面板（20 键按 4 个 tab 分组；整块=完整版专属，公开版无工具箱）
 }

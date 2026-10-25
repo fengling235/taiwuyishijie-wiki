@@ -51,6 +51,10 @@ public struct DamageEvent
     public float Damage;
     public bool IsCritical;
     public bool IsKill;
+
+    /// <summary>ExecuteHit 专用：本跳暴击 roll 喂给 RandomProbability 的概率原值（可>1=溢出 100% 封顶；
+    /// 定案 Execute 内 0xED1B02 是唯一 roll 点）。-1=窗口内没采到（无暴击资格等）。</summary>
+    public float CritChance;
 }
 
 /// <summary>

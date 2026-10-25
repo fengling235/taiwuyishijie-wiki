@@ -10,7 +10,7 @@ using UnityEngine.UI;
 namespace TaiwuDpsMeter;
 
 /// <summary>
-/// 编排层：主线程消费者 + 游戏内 uGUI 面板（主面板/Boss面板/工具箱）。Tick() 由 StartGame.Update
+/// 编排层：主线程消费者 + 游戏内 uGUI 面板（主面板/Boss面板）。Tick() 由 StartGame.Update
 /// 的 Postfix 每帧驱动（主线程），渲染 250ms 节流；面板完全点击穿透，点击全靠 HitButton 矩形轮询命中。
 /// 按人视图为两级树：一级玩家（含随从合计），二级功法明细 + 灵侍/召唤分立行；计时用游戏钟（墙钟 − 累计暂停时长）。
 /// 文件分层（partial 同类，按层拆文件）：UiKit=控件工厂（构建，两条 UI 铁律集中处）；
@@ -31,11 +31,8 @@ public partial class MeterController
 
     private const float PanelW = 804f;
     private const float RowH = 24f;
-    private const float HeaderY = -52f;  // 表头行（标题/摘要之下——20 键工具栏已移入独立工具箱面板）
+    private const float HeaderY = -52f;  // 表头行（标题/摘要之下）
     private const float RowsTop = -70f;  // 数据行起始（表头之下）
-    private const float TbW = 340f;      // 工具箱面板宽
-    private const float TbTabY = -6f;    // 工具箱 tab 行 y
-    private const float TbRowTop = -34f; // 工具箱内容首行 y（列距 110、行距 32、按钮高 26）
 
     private static readonly float[] ColX = { 10f, 250f, 352f, 422f, 478f, 532f, 596f, 676f };
     private static readonly float[] ColW = { 236f, 98f, 66f, 52f, 50f, 58f, 76f, 118f };
@@ -54,7 +51,7 @@ public partial class MeterController
     private static readonly Color BtnGreen = new(0.16f, 0.42f, 0.24f, 0.95f);
     private static readonly Color BtnYellow = new(0.48f, 0.40f, 0.14f, 0.95f);
 
-    private enum ButtonAction { SimStart, SimPause, ClearData, ResetWindow, BossToggle, DpsToggle, ToolboxToggle, TbClose, TabDifficulty, TabEnv, TabBuild, TabDebug, TabRamp, EnemyHpCycle, SpawnCountCycle, SpawnSpeedCycle, EliteChanceCycle, SmallBossChanceCycle, SmallBossDelayCycle, BossTimedCycle, BossFinalCountCycle, ResetAllMods, ModsToggle, VfxToggle, MoveSpeedCycle, EquipDropCycle, MinRarityCycle, ItemDropCycle, PickUpDropCycle, BossStopToggle, EliteXpToggle, PartyExpCycle, EnemyDamageCycle, RampToggle, RampShape, GiveEquip, RampHpSlope, RampDmgSlope, RampMoveSlope, RampCountSlope, RampSpeedSlope, RampEliteSlope, SmallBossRampSlope, BossSelect, BossSummon, DummyToggle, LevelJump, LoadBuild, SummonShield, ZhuijiaToggle, GlobalDmgToggle, DummyRefresh, PartyHpToggle, ResAdd, DummyGuardToggle }
+    private enum ButtonAction { SimStart, SimPause, ClearData, ResetWindow, BossToggle, DpsToggle, ToolboxToggle, TbClose, TabDifficulty, TabEnv, TabBuild, TabDebug, TabRamp, EnemyHpCycle, SpawnCountCycle, SpawnSpeedCycle, EliteChanceCycle, SmallBossChanceCycle, SmallBossDelayCycle, BossTimedCycle, BossFinalCountCycle, ResetAllMods, ModsToggle, VfxToggle, MoveSpeedCycle, EquipDropCycle, MinRarityCycle, ItemDropCycle, PickUpDropCycle, BossStopToggle, EliteXpToggle, PartyExpCycle, EnemyDamageCycle, RampToggle, RampShape, GiveEquip, RampHpSlope, RampDmgSlope, RampMoveSlope, RampCountSlope, RampSpeedSlope, RampEliteSlope, SmallBossRampSlope, BossSelect, BossSummon, DummyToggle, LevelJump, LoadBuild, SummonShield, ZhuijiaToggle, GlobalDmgToggle, DummyRefresh, PartyHpToggle, ResAdd, DummyGuardToggle, DummyAttackToggle, PlayerInvincible }
 
     private sealed class UiButton
     {
@@ -91,7 +88,7 @@ public partial class MeterController
     private GameObject _panel;
     private RectTransform _panelRect;
     private Text _modeText;
-    private Text _toast;                 // 操作结果浮层（装配BD/木桩等按钮反馈，短暂盖住右上角模式文字）
+    private Text _toast;                 // 操作结果浮层（按钮操作反馈，短暂盖住右上角模式文字）
     private double _toastUntilMs;
     private Text _summaryText;
     private Text _footerText;
@@ -108,10 +105,6 @@ public partial class MeterController
     private bool _treeExpanded;
     private readonly Dictionary<int, bool> _nodeOpen = new();  // 各玩家节点独立展开态（点▼/▶切换，F11重置）
     private readonly int[] _rowMarkerUid = new int[RowCount];  // 行号→该行▼/▶对应的玩家uid（-1=无标记）
-    // 数值直输模式：右键点调整按钮进入，键盘敲数字回车生效（比循环档位自由）
-    private bool _inputMode;
-    private ButtonAction _inputTargetAction;
-    private string _inputBuf = "";
     private bool? _inputWorks;
 
     private bool _hostMode;
@@ -132,13 +125,6 @@ public partial class MeterController
     // 按钮状态（点击走鼠标轮询命中，不走 Unity 事件——本运行时注入不了 MonoBehaviour）
     private readonly List<UiButton> _buttons = new();
 
-    // 工具箱面板：20 键按 难度/环境/构筑/调试 4 个 tab 分组的独立小面板（Details!/kagerou 的「控制台」同构）
-    private GameObject _toolboxPanel;
-    private RectTransform _toolboxRect;
-    private bool _toolboxOpen; // 「工具箱」/× 键切换，状态存配置
-    private int _toolboxTab;   // 当前 tab：0=难度 1=环境 2=构筑 3=调试
-    private bool _dragToolbox; // 工具箱拖拽中
-    private Vector2 _tbDragOffset;
 
     private Key _kToggle = Key.F8;
     private Key _kReset = Key.F9;
@@ -162,8 +148,6 @@ public partial class MeterController
     private MeterController()
     {
         _treeExpanded = Plugin.CfgTreeExpanded?.Value ?? true;
-        _toolboxOpen = Plugin.CfgToolboxOpen?.Value ?? false;
-        _toolboxTab = Math.Clamp(Plugin.CfgToolboxTab?.Value ?? 1, 1, 3); // 公开版 3 个 tab（环境=1）
         _kToggle = ParseInputKey(Plugin.CfgToggleKey?.Value ?? "F8");
         _kReset = ParseInputKey(Plugin.CfgResetKey?.Value ?? "F9");
         _kView = ParseInputKey(Plugin.CfgViewKey?.Value ?? "F10");
@@ -312,6 +296,25 @@ public partial class MeterController
     private static readonly CultureInfo Inv = CultureInfo.InvariantCulture;
 
     private static string Fmt(double v) => ((long)Math.Round(v)).ToString("N0", Inv);
+
+    /// <summary>暴击列（2026-10-25 三改）：优先=滚动窗口内每跳暴击 roll 概率 p 的均值——真实概率
+    /// 不受「超100%必暴封顶」遮住，可超 100%；窗口/锚点与观察频率同款（停手随 DPS 冻结）。
+    /// 窗口内没有 roll 采样（老局/特殊路径）退回二值观察频率。</summary>
+    private static string CritRateCell(List<Ledger.CritRing> rings, List<Ledger.CritChanceRing> chances, double anchorMs)
+    {
+        double w = Math.Max(Plugin.CfgCritWindowSeconds?.Value ?? 5f, 0.5f) * 1000.0;
+        long n = 0; double s = 0;
+        if (chances != null)
+        {
+            foreach (var cr in chances)
+            {
+                var (cnt, sum) = cr.Window(anchorMs, w);
+                n += cnt;
+                s += sum;
+            }
+        }
+        return n > 0 ? (s * 100.0 / n).ToString("F1", Inv) + "%" : CritPct(rings, anchorMs);
+    }
 
     /// <summary>
     /// 滚动窗口暴击率：合并多个环（族行=多个技能体、一级行=玩家+随从），窗口锚在 anchorMs

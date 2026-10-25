@@ -12,22 +12,16 @@ namespace TaiwuDpsMeter;
 public partial class MeterController
 {
     /// <summary>
-    /// DPS 统计总开关：关=面板隐藏+DamageBus.CollectionPaused 停收（Execute/飘字两个热 hook 空转近零开销），
-    /// 难度工具箱/曲线/经验等调参不受影响。期间数据不采集不回补（F7 重开从当刻继续累计，要干净账先清空）。
+    /// DPS 统计总开关：关=面板隐藏+DamageBus.CollectionPaused 停收（Execute/飘字两个热 hook 空转近零开销）。
+    /// 期间数据不采集不回补（F7 重开从当刻继续累计，要干净账先清空）。
     /// </summary>
     private void ToggleDps()
     {
         _dpsOff = !_dpsOff;
         Plugin.CfgDpsEnabled.Value = !_dpsOff;
         DamageBus.CollectionPaused = _dpsOff;
-        if (_dpsOff && !_toolboxOpen)
-        {
-            // 关统计后自动弹开工具箱，保证始终有调参入口（含调试页的 DPS 开关）——2026-10-21 用户反馈
-            _toolboxOpen = true;
-            Plugin.CfgToolboxOpen.Value = true;
-        }
         try { Plugin.ConfigFile?.Save(); } catch { /* 忽略 */ }
-        Plugin.Log.LogInfo($"[dps] DPS 统计 → {(_dpsOff ? "关闭（主面板隐藏+停止采集；工具箱与调参照常可用，F7 重开）" : "开启")}");
+        Plugin.Log.LogInfo($"[dps] DPS 统计 → {(_dpsOff ? "关闭（主面板隐藏+停止采集，F7 重开）" : "开启")}");
         if (!_dpsOff) ShowToast("✓ DPS 统计已开启", true); // 关闭时面板随藏、toast 不可见，只写日志
     }
 
@@ -42,8 +36,7 @@ public partial class MeterController
             bool visible = b.Tab switch
             {
                 -1 => true,
-                -2 => _toolboxOpen,
-                _ => _toolboxOpen && b.Tab == _toolboxTab,
+                _ => true, // 公开版全部是标题行常驻键（Tab=-1），此臂仅兜底
             };
             if (b.Root.activeSelf != visible)
             {
@@ -51,28 +44,9 @@ public partial class MeterController
                 b.Label.gameObject.SetActive(visible);
             }
             if (!visible) continue;
-            if (_inputMode && b.Action == _inputTargetAction)
+            // 公开版标题行只有 DPS✓ / Boss✓ / 清空 三个常驻键
+            switch (b.Action)
             {
-                b.Label.text = $"…{_inputBuf}";
-                b.Img.color = BtnAccent;
-                continue;
-            }
-switch (b.Action)
-            {
-                case ButtonAction.ToolboxToggle:
-                    b.Label.text = _toolboxOpen ? "工具箱 ▾" : "工具箱 ▴";
-                    b.Img.color = _toolboxOpen ? BtnAccent : BtnNormal;
-                    break;
-                case ButtonAction.TabDifficulty:
-                case ButtonAction.TabEnv:
-                case ButtonAction.TabBuild:
-                case ButtonAction.TabDebug:
-                case ButtonAction.TabRamp:
-                    b.Img.color = (b.Action - ButtonAction.TabDifficulty) == _toolboxTab ? BtnAccent : BtnNormal;
-                    break;
-                case ButtonAction.TbClose:
-                    b.Img.color = BtnNormal;
-                    break;
                 case ButtonAction.BossToggle:
                     b.Label.text = _bossUserOpen ? "Boss ✓" : "Boss ✗";
                     b.Img.color = _bossUserOpen ? BtnGreen : BtnNormal;
@@ -81,29 +55,6 @@ switch (b.Action)
                     b.Label.text = _dpsOff ? "DPS ✗" : "DPS ✓";
                     b.Img.color = _dpsOff ? BtnNormal : BtnGreen;
                     break;
-                case ButtonAction.DummyToggle:
-                {
-                    bool on = Plugin.CfgDummyMode?.Value == true;
-                    int n = Math.Clamp(Plugin.CfgDummyCount?.Value ?? 1, 1, 16);
-                    b.Label.text = (on ? "木桩开" : "木桩关") + $"×{n}";
-                    b.Img.color = on ? BtnAccent : BtnNormal;
-                    break;
-                }
-                case ButtonAction.LoadBuild:
-                    b.Label.text = "装配BD";
-                    b.Img.color = BtnGreen;
-                    break;
-                case ButtonAction.DummyRefresh:
-                    b.Label.text = "刷木桩";
-                    b.Img.color = BtnGreen;
-                    break;
-                case ButtonAction.DummyGuardToggle:
-                {
-                    bool on = Plugin.CfgDummyAntiExecute?.Value != false;
-                    b.Label.text = on ? "防斩杀:开" : "防斩杀:关";
-                    b.Img.color = on ? BtnGreen : BtnNormal;
-                    break;
-                }
                 default:
                     b.Img.color = BtnNormal;
                     break;
@@ -111,13 +62,13 @@ switch (b.Action)
     }
     }
 
-    /// <summary>屏幕坐标（y 向下）命中可见按钮（主面板/工具箱各自坐标系换算）。</summary>
+    /// <summary>屏幕坐标（y 向下）命中可见按钮（按所属面板各自坐标系换算）。</summary>
     private ButtonAction? HitButton(Vector2 mouse)
     {
         float s = _uiScale;
         foreach (var b in _buttons)
         {
-            if (!b.Root.activeInHierarchy) continue; // 用层级有效态：主面板/工具箱整组隐藏（SetActive false）时热区必须跟着失效，
+            if (!b.Root.activeInHierarchy) continue; // 用层级有效态：面板整组隐藏（SetActive false）时热区必须跟着失效，
                                                      // 否则点得到「隐形的按钮」（activeSelf 不随父级变，activeInHierarchy 才会）
             var panel = b.Panel != null ? b.Panel : _panelRect;
             float px = panel.anchoredPosition.x;
@@ -134,68 +85,12 @@ switch (b.Action)
     {
         switch (a)
         {
-            case ButtonAction.ToolboxToggle:
-            case ButtonAction.TbClose:
-                _toolboxOpen = a == ButtonAction.ToolboxToggle ? !_toolboxOpen : false;
-                Plugin.CfgToolboxOpen.Value = _toolboxOpen;
-                try { Plugin.ConfigFile?.Save(); } catch { /* 忽略 */ }
-                break;
-            case ButtonAction.TabDifficulty:
-            case ButtonAction.TabEnv:
-            case ButtonAction.TabBuild:
-            case ButtonAction.TabDebug:
-            case ButtonAction.TabRamp:
-                _toolboxTab = (int)(a - ButtonAction.TabDifficulty);
-                Plugin.CfgToolboxTab.Value = _toolboxTab;
-                try { Plugin.ConfigFile?.Save(); } catch { /* 忽略 */ }
-                break;
             case ButtonAction.BossToggle:
                 _bossUserOpen = !_bossUserOpen;
                 break;
             case ButtonAction.DpsToggle:
                 ToggleDps();
                 break;
-            case ButtonAction.DummyGuardToggle:
-            {
-                bool on = Plugin.CfgDummyAntiExecute?.Value != true;
-                Plugin.CfgDummyAntiExecute.Value = on;
-                TuningCache.ForceRefresh();
-                try { Plugin.ConfigFile?.Save(); } catch { /* 忽略 */ }
-                Plugin.Log.LogInfo($"[dummy] 木桩防斩杀 → {(on ? "开（处决对木桩无效）" : "关（斩杀可杀死木桩）")}");
-                break;
-            }
-            case ButtonAction.DummyToggle:
-            {
-                bool on = Plugin.CfgDummyMode?.Value != true;
-                string err = DummyController.SetMode(on);
-                if (err == null)
-                {
-                    Plugin.CfgDummyMode.Value = on;
-                    TuningCache.ForceRefresh(); // DummyOn 立即进缓存：木桩创建链（Initialize→NoteSpawn）要同帧读到新值，250ms 延迟会漏标记
-                    try { Plugin.ConfigFile?.Save(); } catch { /* 忽略 */ }
-                    ShowToast(on ? "✓ 木桩已开启（停刷+清场+召唤）" : "✓ 木桩已关闭（刷怪已恢复）", true);
-                }
-                else
-                {
-                    Plugin.Log.LogWarning($"[dummy] 木桩模式切换失败：{err}（配置未改）");
-                    ShowToast("✗ " + err, false);
-                }
-                break;
-            }
-            case ButtonAction.LoadBuild:
-            {
-                string err = BuildLoader.ApplyFromFile();
-                if (err == null) { Plugin.Log.LogInfo("[build] 装配完成（槽位/伤害表现随开火生效；词条全链+进化已直设）"); ShowToast(BuildLoader.LastSummary, true); }
-                else { Plugin.Log.LogWarning($"[build] 装配失败：{err}"); ShowToast("✗ " + err, false); }
-                break;
-            }
-            case ButtonAction.DummyRefresh:
-            {
-                string err = DummyController.Refresh();
-                if (err == null) ShowToast("✓ 木桩已刷新（全新零buff）", true);
-                else { Plugin.Log.LogWarning($"[dummy] 刷新失败：{err}"); ShowToast("✗ " + err, false); }
-                break;
-            }
             case ButtonAction.ClearData:
                 _ledger.Reset();
                 _registry.Reset();
@@ -208,7 +103,6 @@ switch (b.Action)
             case ButtonAction.ResetWindow:
                 _uiScale = 1f;
                 _panelRect.localScale = Vector3.one;
-                if (_toolboxRect != null) _toolboxRect.localScale = Vector3.one; // 工具箱跟随重置缩放
                 _panelRect.anchoredPosition = new Vector2(0.02f * Screen.width, -0.45f * Screen.height);
                 SaveUiPos();
                 break;

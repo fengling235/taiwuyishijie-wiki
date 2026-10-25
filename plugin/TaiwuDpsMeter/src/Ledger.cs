@@ -46,6 +46,39 @@ internal sealed class Ledger
     }
 
     /// <summary>
+    /// 滚动窗口暴击率均值（暴击列 2026-10-25 三改）：与 CritRing 同款环形结构，但记的是每跳
+    /// 暴击 roll 的概率原值 p（可>1）而非二值结果——窗口均值=最近N秒真实暴击率，不受游戏
+    /// 「超100%必暴封顶」遮住。p&lt;0（没采到 roll）不入环。
+    /// </summary>
+    internal sealed class CritChanceRing
+    {
+        private readonly List<long> _times = new();
+        private readonly List<float> _chances = new();
+        private const int Cap = 256;
+
+        internal void Add(long t, float p)
+        {
+            if (p < 0f) return;
+            _times.Add(t);
+            _chances.Add(p);
+            if (_times.Count > Cap) { _times.RemoveRange(0, _times.Count - Cap); _chances.RemoveRange(0, _chances.Count - Cap); }
+        }
+
+        /// <summary>窗口内 (跳数, Σp)；均值 = Σp/跳数。锚点口径与 CritRing.Window 一致。</summary>
+        internal (long Count, double Sum) Window(double anchorMs, double windowMs)
+        {
+            long n = 0; double s = 0;
+            for (int i = _times.Count - 1; i >= 0; i--)
+            {
+                if (anchorMs - _times[i] > windowMs) break;
+                n++;
+                s += _chances[i];
+            }
+            return (n, s);
+        }
+    }
+
+    /// <summary>
     /// 滚动窗口伤害账本（「近N秒DPS」列）：30 个 1 秒桶环形复用，写入按当前秒落桶（过期桶清零），
     /// 读取只累计窗口内的桶。写读均 O(1)/O(桶数) 无分配；窗口秒数取 Plugin.CfgBurstWindow（5~30）。
     /// </summary>
@@ -85,6 +118,7 @@ internal sealed class Ledger
         public double FirstMs = -1; // 本行首跳（功法行 DPS 分母用：活动窗口）
         public double LastMs;
         public readonly CritRing Ring = new();
+        public readonly CritChanceRing ChanceRing = new(); // 真实暴击率滚动窗（可>100%）
         public readonly RollingWindow Burst = new();
     }
 
@@ -98,6 +132,7 @@ internal sealed class Ledger
         public double FirstMs = -1;
         public double LastMs;
         public readonly CritRing Ring = new();
+        public readonly CritChanceRing ChanceRing = new(); // 同 SkillStats
         public readonly RollingWindow Burst = new();
     }
 
@@ -123,6 +158,7 @@ internal sealed class Ledger
         public readonly Dictionary<int, SkillStats> BySkill = new();
         public readonly Dictionary<string, TriggerStats> ByTrigger = new();
         public readonly CritRing Ring = new();
+        public readonly CritChanceRing ChanceRing = new(); // 真实暴击率滚动窗（一级行，含各跳概率）
         public readonly RollingWindow Burst = new();
 
         public SkillStats GetOrCreateSkill(int skillIndex)
@@ -306,12 +342,14 @@ internal sealed class Ledger
         a.Hits++;
         if (e.IsCritical) a.Crits++;
         a.Ring.Add((long)now, e.IsCritical);
+        a.ChanceRing.Add((long)now, e.CritChance); // p<0 内部自弃
 
         var sk = a.GetOrCreateSkill(e.SkillIndex);
         sk.Damage += e.Damage;
         sk.Burst.Add(now, e.Damage);
         sk.Hits++;
         if (e.IsCritical) sk.Crits++;
+        sk.ChanceRing.Add((long)now, e.CritChance); // Packet=0 也无碍：Packet 事件不走本 Add
         if (sk.FirstMs < 0) sk.FirstMs = now;
         sk.LastMs = now;
         sk.Ring.Add((long)now, e.IsCritical);
@@ -330,6 +368,7 @@ internal sealed class Ledger
             tr.Burst.Add(now, e.Damage);
             tr.Hits++;
             if (e.IsCritical) tr.Crits++;
+            tr.ChanceRing.Add((long)now, e.CritChance);
             if (tr.FirstMs < 0) tr.FirstMs = now;
             tr.LastMs = now;
             tr.Ring.Add((long)now, e.IsCritical);
