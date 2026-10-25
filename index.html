@@ -262,7 +262,7 @@ details.rawdata summary:hover{color:var(--gold)}
     <div id="content"></div>
   </main>
 </div>
-<script src="data.js"></script>
+<script src="data.js?v=20261025"></script>
 <script>
 "use strict";
 const D = WIKI_DATA;
@@ -759,7 +759,7 @@ function pgEquipDetail(c, id){
         pool.traits.map((t,j)=>{
           const w=(pool.weights||[])[j]||"";
           const pct = sum>0 && Number(w) ? (Number(w)/sum*100) : null;
-          return "<tr><td>"+esc(t)+"</td><td>"+esc(w)+"</td>"+
+          return "<tr><td>"+rich(t)+"</td><td>"+esc(w)+"</td>"+
             "<td>"+(pct!=null?(pct<1?pct.toFixed(2):pct.toFixed(1))+"%":"—")+"</td></tr>";
         }).join("");
       p2.appendChild(tb); c.appendChild(p2);
@@ -938,6 +938,6 @@ document.addEventListener("click", e=>{
 });
 route();
 </script>
-<script src="planner.js"></script>
+<script src="planner.js?v=20261025"></script>
 </body>
 </html>

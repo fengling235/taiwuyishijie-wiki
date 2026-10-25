@@ -1102,7 +1102,7 @@ function renderEquips(c){
       if(picked.length){
         right.appendChild(el("div", "pl-tchips",
           "<span class='pl-tip'>目标词条：</span>" +
-          picked.map(t => "<span class='pl-tchip on'>" + esc(t) + "</span>").join("")));
+          picked.map(t => "<span class='pl-tchip on'>" + rich(t) + "</span>").join("")));
       }
     }
     row.appendChild(right);
@@ -1293,7 +1293,7 @@ function renderEquips(c){
         "<div class='ovlist'>" +
         ((e.fixed_traits || []).map(t => equipTraitLine(t)).filter(Boolean).join("<br>") || "") +
         (picked.length ? (e.fixed_traits && e.fixed_traits.length ? "<br>" : "") +
-          picked.map(t => "<span style='color:var(--gold)'>◎ " + esc(t) + "</span>").join("<br>") : "") +
+          picked.map(t => "<span style='color:var(--gold)'>◎ " + rich(t) + "</span>").join("<br>") : "") +
         (!e.fixed_traits.length && !picked.length ? "<span style='color:var(--text-faint)'>（无固有词条，未勾目标词条）</span>" : "") +
         "</div>";
       ov.appendChild(row);
@@ -1376,7 +1376,7 @@ function openEquipModal(slot){
       if(cap === 0){
         box.appendChild(el("div", "pl-tip", "第 " + (pi + 1) + " 条 · 该池抽取数为 0，不参与掉落（仅列出参考）："));
         box.appendChild(el("div", "pl-tchips",
-          (pool.traits || []).map(t => "<span class='pl-tchip' style='opacity:.4;cursor:default'>" + esc(t) + "</span>").join("")));
+          (pool.traits || []).map(t => "<span class='pl-tchip' style='opacity:.4;cursor:default'>" + rich(t) + "</span>").join("")));
         sh.detail.appendChild(box);
         return;
       }
@@ -1384,7 +1384,7 @@ function openEquipModal(slot){
       const chips = el("div", "pl-tchips");
       (pool.traits || []).forEach(t => {
         const sel = ((MODAL.picks[pi] || []).includes(t));
-        const chip = el("span", "pl-tchip" + (sel ? " on" : ""), esc(t));
+        const chip = el("span", "pl-tchip" + (sel ? " on" : ""), rich(t));
         chip.onclick = () => {
           const arr = MODAL.picks[pi] = MODAL.picks[pi] || [];
           const at = arr.indexOf(t);
