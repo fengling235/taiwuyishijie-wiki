@@ -446,11 +446,13 @@ function pgHome(c){
 }
 
 /* ---------------- 功法 ---------------- */
+// 富文本原文里 <color=#xxx>近战</color>功法 会把关键词隔断，搜索前必须剥掉标签
+function plainText(t){ return (t==null?"":String(t)).replace(/<[^>]*>/g,""); }
 function skillSearchText(s){
   if(s._q) return s._q;
-  let q = s.name + (s.name_en||"") + s.desc + (s.tags||[]).join("");
-  s.upgrades.forEach(br=>br.forEach(u=>{ q += u.name + u.desc + (u.desc2||""); }));
-  s.evolutions.forEach(e=>{ q += e.name + e.desc + (e.desc2||""); });
+  let q = plainText(s.name) + plainText(s.name_en) + plainText(s.desc) + (s.tags||[]).join("");
+  s.upgrades.forEach(br=>br.forEach(u=>{ q += plainText(u.name) + plainText(u.desc) + plainText(u.desc2); }));
+  s.evolutions.forEach(e=>{ q += plainText(e.name) + plainText(e.desc) + plainText(e.desc2); });
   s._q = q.toLowerCase();
   return s._q;
 }
@@ -904,7 +906,7 @@ let searchIndex = null;
 function buildIndex(){
   if(searchIndex) return searchIndex;
   const idx=[];
-  D.skills.forEach(s=>idx.push({label:s.name, sub:"功法 · 升级"+s.upgrades.length+"线/进化"+s.evolutions.length, hash:"#/skills/"+encodeURIComponent(s.id), text:s.name+(s.name_en||"")+s.desc}));
+  D.skills.forEach(s=>idx.push({label:s.name, sub:"功法 · 升级"+s.upgrades.length+"线/进化"+s.evolutions.length, hash:"#/skills/"+encodeURIComponent(s.id), text:skillSearchText(s)}));
   D.equipment.forEach(e=>idx.push({label:e.name, sub:"装备 · "+e.rarity+" · "+e.slot, hash:"#/equipment/"+encodeURIComponent(e.id), text:e.name+(e.name_en||"")+e.desc}));
   D.elixirs.forEach(x=>idx.push({label:x.name, sub:"丹药", hash:"#/elixirs", text:x.name+x.desc}));
   searchIndex = idx; return idx;
@@ -912,8 +914,8 @@ function buildIndex(){
 function doSearch(q){
   const box = $("#searchResults");
   if(!q || q.length<1){ box.style.display="none"; return; }
-  const ql = q.toLowerCase();
-  const hits = buildIndex().filter(x=>x.text.toLowerCase().includes(ql)).slice(0,20);
+  const ql = plainText(q).toLowerCase();
+  const hits = buildIndex().filter(x=>plainText(x.text).toLowerCase().includes(ql)).slice(0,20);
   box.innerHTML = hits.length? hits.map((h,i)=>"<div class='sr' data-i='"+i+"'><div class='t'>"+esc(h.label)+"</div><div class='s'>"+esc(h.sub)+"</div></div>").join("")
     : "<div class='sr'><div class='s'>无结果</div></div>";
   box.style.display="block";
