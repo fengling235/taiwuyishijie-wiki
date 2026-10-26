@@ -82,6 +82,11 @@ table.tb tr:hover td{background:#c9a86a08}
   color:var(--text-dim);cursor:pointer;background:var(--panel);user-select:none;letter-spacing:1px}
 .tabs .tab:hover{color:var(--gold);border-color:var(--gold-dim)}
 .tabs .tab.on{color:var(--gold);border-color:var(--gold);background:#c9a86a18}
+.tabbtn{padding:5px 16px;border:1px solid var(--line2);border-radius:16px;font-size:13px;
+  color:var(--text-dim);cursor:pointer;background:var(--panel);letter-spacing:1px}
+.tabbtn:hover{color:var(--gold);border-color:var(--gold-dim)}
+.tabbtn.on{color:var(--gold);border-color:var(--gold);background:#c9a86a18}
+.dlg-line{padding:2px 0 2px 4px;font-size:14px;line-height:1.9;border-bottom:1px dashed #3a312545}
 .hpbar{height:6px;border-radius:3px;background:#ffffff12;overflow:hidden;margin-top:7px}
 .hpbar i{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,#8f4a3c,#e0604e)}
 .flow{display:flex;align-items:stretch;flex-wrap:wrap;gap:8px}
@@ -262,7 +267,7 @@ details.rawdata summary:hover{color:var(--gold)}
     <div id="content"></div>
   </main>
 </div>
-<script src="data.js?v=20261025"></script>
+<script src="data.js?v=20261026"></script>
 <script>
 "use strict";
 const D = WIKI_DATA;
@@ -889,6 +894,18 @@ function enemyCrossNames(){ // 出现于多个章节的同名敌人家族
 
 /* ---------------- 经济 ---------------- */
 
+/* ---------------- 新手开荒 ---------------- */
+
+/* ---------------- 局内道具 ---------------- */
+
+/* ---------------- 局内事件 ---------------- */
+
+/* ---------------- 剧情台词 ---------------- */
+
+/* ---------------- 联机机制 ---------------- */
+
+/* ---------------- 版本日志 ---------------- */
+
 /* ---------------- 局外 ---------------- */
 
 /* ---------------- 释义 ---------------- */
@@ -938,6 +955,6 @@ document.addEventListener("click", e=>{
 });
 route();
 </script>
-<script src="planner.js?v=20261025"></script>
+<script src="planner.js?v=20261026"></script>
 </body>
 </html>
