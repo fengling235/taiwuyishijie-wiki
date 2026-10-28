@@ -229,12 +229,22 @@ const GAIN_BUFF_POOL = new Set(D.buffs.filter(b =>
   (b.tags || [])[0] === "1" && +b.max_stack >= 1 && (b.deltas || []).length && b.name
   && b.scope !== "self"
 ).map(b => b.id));
+/* 妨害系命名状态池（namedBuffs("3") 同口径）——参悟/进化会向敌方施加的减益 */
+const CURSE_BUFF_POOL = new Set(D.buffs.filter(b =>
+  (b.tags || [])[0] === "3" && +b.max_stack >= 1 && (b.deltas || []).length && b.name
+  && b.scope !== "self"
+).map(b => b.id));
+const BUFF_KINDS = [
+  { kind: "gain", pool: GAIN_BUFF_POOL, random: "随机增益", cls: "gb" },
+  { kind: "curse", pool: CURSE_BUFF_POOL, random: "随机妨害", cls: "cb" },
+];
 const GAIN_BUFF_NAME = id => ((D.buffs.find(b => b.id === id) || {}).name) || id;
-/* 给予形式判名：desc 明说「随机」且多候选 → 随机增益行；否则列具体名（顿号连接） */
-function gainBuffRowName(gains, txt){
-  if(gains.length >= 2 && /随机/.test(txt || "")) return "随机增益";
+/* 给予/施加形式判名：desc 明说「随机」且多候选 → 随机增益/妨害行；否则列具体名（顿号连接） */
+function gainBuffRowName(gains, txt, randomLabel){
+  if(gains.length >= 2 && /随机/.test(txt || "")) return randomLabel;
   return gains.map(GAIN_BUFF_NAME).join("、");
 }
+const buffKindOrder = r => r.kind === "gain" ? 1 : r.kind === "curse" ? 2 : 0;
 /* 已选配置（entry={lv,evo}）→ 实际生效的全局收益；entry 省略 → 全部分支点满口径。
    数值行走 deltas 求和（乘区连乘）；「给予增益」类不走数值，直接列增益 buff 名不细分 */
 function skillGlobalGains(s, entry){
@@ -251,12 +261,12 @@ function skillGlobalGains(s, entry){
     if(d.depend) row.depend = d.depend;
     row.srcs.push({ label, txt, v, depend: d.depend || "" });
   };
-  const pushGainBuffs = (buffs, label, txt) => {
-    const gains = (buffs || []).filter(x => GAIN_BUFF_POOL.has(x));
+  const pushBuffRow = (k, buffs, label, txt) => {
+    const gains = (buffs || []).filter(x => k.pool.has(x));
     if(!gains.length) return;
-    const disp = gainBuffRowName(gains, txt);
-    let row = out.find(r => r.disp === disp && r.kind === "buff");
-    if(!row){ row = { disp, kind: "buff", key: "", pct: false, v: 0, cond: "",
+    const disp = gainBuffRowName(gains, txt, k.random);
+    let row = out.find(r => r.disp === disp && r.kind === k.kind);
+    if(!row){ row = { disp, kind: k.kind, cls: k.cls, key: "", pct: false, v: 0, cond: "",
                       depend: "", srcs: [], gains };
       out.push(row); }
     row.srcs.push({ label, txt, v: 1, depend: "" });
@@ -265,17 +275,17 @@ function skillGlobalGains(s, entry){
     const cap = entry ? (entry.lv[bi] || 0) : branch.length;
     for(let li = 0; li < cap && li < branch.length; li++){
       const u = branch[li];
-      (u.deltas || []).forEach(d =>
-        push(d, branchName(branch) + " L" + (li + 1), plainText(u.desc)));
-      pushGainBuffs(u.add_buffs, branchName(branch) + " L" + (li + 1), plainText(u.desc));
+      const label = branchName(branch) + " L" + (li + 1), txt = plainText(u.desc);
+      (u.deltas || []).forEach(d => push(d, label, txt));
+      BUFF_KINDS.forEach(k => pushBuffRow(k, u.add_buffs, label, txt));
     }
   });
   (s.evolutions || []).forEach(e => {
     if(entry && entry.evo !== e.id) return;
     (e.deltas || []).forEach(d => push(d, "进化·" + e.name, plainText(e.desc)));
-    pushGainBuffs(e.add_buffs, "进化·" + e.name, plainText(e.desc));
+    BUFF_KINDS.forEach(k => pushBuffRow(k, e.add_buffs, "进化·" + e.name, plainText(e.desc)));
   });
-  return out.sort((a, b) => (a.kind === "buff" ? 1 : 0) - (b.kind === "buff" ? 1 : 0));
+  return out.sort((a, b) => buffKindOrder(a) - buffKindOrder(b));
 }
 /* 功法选择弹窗用矩阵：行=收益（stat+条件），列=各分支（点满合计）/进化，供选分支时横向对比 */
 function skillGlobalMatrix(s){
@@ -292,14 +302,16 @@ function skillGlobalMatrix(s){
     if(d.depend) r.depend = d.depend;
   };
   const cellBuff = (buffs, ci, txt) => {
-    const gains = (buffs || []).filter(x => GAIN_BUFF_POOL.has(x));
-    if(!gains.length) return;
-    const disp = gainBuffRowName(gains, txt);
-    let r = rows.find(x => x.disp === disp && x.kind === "buff");
-    if(!r){ r = { disp, kind: "buff", key: "", cond: "", depend: "", mult: false,
-                  pct: false, cells: [null, null, null, null, null, null], gains };
-      rows.push(r); }
-    r.cells[ci] = 1;
+    BUFF_KINDS.forEach(k => {
+      const gains = (buffs || []).filter(x => k.pool.has(x));
+      if(!gains.length) return;
+      const disp = gainBuffRowName(gains, txt, k.random);
+      let r = rows.find(x => x.disp === disp && x.kind === k.kind);
+      if(!r){ r = { disp, kind: k.kind, cls: k.cls, key: "", cond: "", depend: "", mult: false,
+                    pct: false, cells: [null, null, null, null, null, null], gains };
+        rows.push(r); }
+      r.cells[ci] = 1;
+    });
   };
   (s.upgrades || []).forEach((branch, bi) => {
     branch.forEach(u => {
@@ -311,7 +323,7 @@ function skillGlobalMatrix(s){
     (e.deltas || []).forEach(d => cell(d, 5));
     cellBuff(e.add_buffs, 5, plainText(e.desc));
   });
-  return rows.sort((a, b) => (a.kind === "buff" ? 1 : 0) - (b.kind === "buff" ? 1 : 0));
+  return rows.sort((a, b) => buffKindOrder(a) - buffKindOrder(b));
 }
 
 /* 汇总一件装备的数值词条行（固有 brief + 已勾目标词条），逐行喂给 agg */
@@ -567,6 +579,8 @@ body.pl-modal-open{overflow:hidden}
 .pl-gchip.dep b{color:var(--text-faint)}
 .pl-gchip.gb b{color:var(--r-epic)}
 .pl-gmatrix > .nm.gb{color:var(--r-epic)}
+.pl-gchip.cb b{color:var(--red)}
+.pl-gmatrix > .nm.cb{color:var(--red)}
 .pl-gmatrix{display:grid;font-size:12.5px;gap:0;overflow-x:auto;
   border:1px solid var(--line2);border-radius:8px}
 .pl-gmatrix > span{padding:5px 10px;border-top:1px solid var(--line);min-width:0}
@@ -869,10 +883,10 @@ function renderSkillSlot(slot, en, i){
   if(gains.length){
     const chips = gains.map(g => {
       const tip = g.srcs.map(x => x.label + "：" + plainText(x.txt)).join("\n");
-      return "<span class='pl-gchip" + (g.depend ? " dep" : "") + (g.kind === "buff" ? " gb" : "") +
+      return "<span class='pl-gchip" + (g.depend ? " dep" : "") + (g.cls ? " " + g.cls : "") +
         "' title='" + esc(tip) + "'>" +
         esc(g.disp) + (g.cond ? "<i>" + esc(g.cond) + "</i>" : "") +
-        "<b>" + (g.kind === "buff" ? "✦" : g.depend ? "动态" : esc(fmtGainVal(g, g.v))) + "</b></span>";
+        "<b>" + (g.cls ? "✦" : g.depend ? "动态" : esc(fmtGainVal(g, g.v))) + "</b></span>";
     }).join("");
     slot.appendChild(el("div", "pl-slotglobal",
       "<span class='gl'>全局收益</span>" + chips));
@@ -1091,7 +1105,7 @@ function openSkillModal(slotIdx, currentId){
       let html = "<div class='pl-gmatrix' style='grid-template-columns:minmax(120px,max-content) repeat(" + colN + ",minmax(0,auto))'>" +
         head.map((h, ci) => "<span class='hd" + (ci ? " c" + cellCls(ci) : "") + "' title='" + esc(h) + "'>" + esc(h) + "</span>").join("");
       gmRows.forEach(r => {
-        const isBuff = r.kind === "buff";
+        const isBuff = !!r.cls;   // gain=紫(gb) / curse=红(cb)
         const selLv = MODAL.sel.br.map(bi => r.cells[bi]).filter(v => v != null);
         const hasSel = selLv.length > 0 || (MODAL.sel.evo && r.cells[5] != null);
         let sel = isBuff ? 1
@@ -1104,7 +1118,7 @@ function openSkillModal(slotIdx, currentId){
         const rowTip = isBuff && r.gains && r.gains.length >= 2
           ? " title='" + esc("候选：" + r.gains.map(GAIN_BUFF_NAME).join(" / ")) + "'" : "";
         const cellTxt = (v) => v == null ? "" : isBuff ? "✦" : (r.depend ? "◇" : esc(fmtGainVal(r, v)));
-        html += "<span class='nm" + (r.depend ? " dep" : "") + (isBuff ? " gb" : "") + "'" + rowTip + ">" + nm + "</span>";
+        html += "<span class='nm" + (r.depend ? " dep" : "") + (isBuff ? " " + r.cls : "") + "'" + rowTip + ">" + nm + "</span>";
         for(let ci = 0; ci < 5; ci++)
           html += "<span class='c" + (MODAL.sel.br.includes(ci) ? " on" : "") + "'>" + cellTxt(r.cells[ci]) + "</span>";
         html += "<span class='c evo" + (MODAL.sel.evo ? " on" : "") + "'>" + cellTxt(r.cells[5]) + "</span>";
@@ -1113,7 +1127,7 @@ function openSkillModal(slotIdx, currentId){
       html += "</div>";
       gmBox.innerHTML = html;
       gmBox.appendChild(el("div", "pl-tip",
-        "数值为该分支 L1+L2+L3 点满的合计（参悟同线三级同时生效、叠加求和；×N 为独立乘区多来源连乘）；◇/动态=按公式实时变化，以参悟描述原文为准；✦=该分支会给予增益（悬停行名看候选）"));
+        "数值为该分支 L1+L2+L3 点满的合计（参悟同线三级同时生效、叠加求和；×N 为独立乘区多来源连乘）；◇/动态=按公式实时变化，以参悟描述原文为准；✦ 紫=该分支会给予增益、红=会向敌方施加妨害（悬停行名看候选）"));
     }
 
     sh.detail.appendChild(el("div", "pl-mdsec", "参悟分支（五选三 · 点卡片勾选，每条自动满级 L3）"));
