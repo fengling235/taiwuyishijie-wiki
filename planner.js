@@ -208,6 +208,63 @@ function plTraitStat(line){
 const PL_PCT_KEY = /Percent|Chance|Rate|Reduction|Multiply|Critical/i;
 function plIsPctKey(key){ return PL_PCT_KEY.test(key || ""); }
 
+ 
+function fmtGainVal(d, v){
+  const n = v == null ? parseFloat(d.value) : v;
+  if(isNaN(n)) return d.value;
+  const pct = plIsPctKey(d.key);
+  const f = Math.round((pct ? n * 100 : n) * 1000) / 1000;
+  return (f >= 0 ? "+" : "") + f + (pct ? "%" : "");
+}
+/* 已选配置（entry={lv,evo}）→ 实际生效的全局收益；entry 省略 → 全部分支点满口径 */
+function skillGlobalGains(s, entry){
+  const out = [];
+  const push = (d, label, txt) => {
+    if(!d || d.scope === "self") return;
+    const v = parseFloat(d.value);
+    if(isNaN(v)) return;
+    let row = out.find(r => r.disp === d.stat && r.cond === (d.cond || ""));
+    if(!row){ row = { disp: d.stat, key: d.key, pct: plIsPctKey(d.key), v: 0,
+                      cond: d.cond || "", depend: d.depend || "", srcs: [] };
+      out.push(row); }
+    row.v += v;
+    if(d.depend) row.depend = d.depend;
+    row.srcs.push({ label, txt, v, depend: d.depend || "" });
+  };
+  (s.upgrades || []).forEach((branch, bi) => {
+    const cap = entry ? (entry.lv[bi] || 0) : branch.length;
+    for(let li = 0; li < cap && li < branch.length; li++){
+      const u = branch[li];
+      (u.deltas || []).forEach(d =>
+        push(d, branchName(branch) + " L" + (li + 1), plainText(u.desc)));
+    }
+  });
+  (s.evolutions || []).forEach(e => {
+    if(entry && entry.evo !== e.id) return;
+    (e.deltas || []).forEach(d => push(d, "进化·" + e.name, plainText(e.desc)));
+  });
+  return out;
+}
+/* 功法选择弹窗用矩阵：行=收益（stat+条件），列=各分支（点满合计）/进化，供选分支时横向对比 */
+function skillGlobalMatrix(s){
+  const rows = new Map();
+  const cell = (d, ci) => {
+    if(d.scope === "self") return;
+    const k = d.stat + "\t" + (d.cond || "");
+    let r = rows.get(k);
+    if(!r){ r = { disp: d.stat, key: d.key, cond: d.cond || "", depend: d.depend || "",
+                  pct: plIsPctKey(d.key), cells: [null, null, null, null, null, null] };
+      rows.set(k, r); }
+    r.cells[ci] = (r.cells[ci] || 0) + (parseFloat(d.value) || 0);
+    if(d.depend) r.depend = d.depend;
+  };
+  (s.upgrades || []).forEach((branch, bi) =>
+    branch.forEach(u => (u.deltas || []).forEach(d => cell(d, bi))));
+  (s.evolutions || []).forEach(e =>
+    (e.deltas || []).forEach(d => cell(d, 5)));
+  return [...rows.values()];
+}
+
 /* 汇总一件装备的数值词条行（固有 brief + 已勾目标词条），逐行喂给 agg */
 function plCollectEquipLines(e, o, add){
   (e.fixed_traits || []).forEach(t => { if(t && t.prop && t.name) add(t.name, e); });
@@ -447,7 +504,34 @@ body.pl-modal-open{overflow:hidden}
 .pl-evoone{border:1px solid var(--gold-dim);border-radius:7px;padding:6px 10px;margin-top:8px;background:#c9a86a08}
 .pl-evoone .nm{color:var(--r-legend);font-weight:600;font-size:13.5px}
 .pl-evoone .ds{font-size:12.5px;color:var(--text-dim);line-height:1.55}
-.pl-tip{font-size:13px;color:var(--text-dim)}\n.pl-cellgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;margin-top:2px}
+.pl-tip{font-size:13px;color:var(--text-dim)}
+/* ---- 全局收益（功法卡 chips + 弹窗矩阵）---- */
+.pl-slotglobal{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:8px;
+  padding-top:7px;border-top:1px dashed #3a312566}
+.pl-slotglobal .gl{flex:none;font-size:11px;letter-spacing:1px;color:var(--green);
+  border:1px solid var(--green);border-radius:4px;padding:0 6px;line-height:19px}
+.pl-gchip{border:1px solid var(--line2);border-radius:5px;padding:1px 8px;font-size:12px;
+  color:var(--text-dim);background:var(--panel);white-space:nowrap;cursor:help}
+.pl-gchip b{color:var(--green);font-weight:600;margin-left:4px;font-variant-numeric:tabular-nums}
+.pl-gchip i{font-style:normal;font-size:10.5px;color:var(--text-faint);margin-left:4px}
+.pl-gchip.dep{border-style:dashed}
+.pl-gchip.dep b{color:var(--text-faint)}
+.pl-gmatrix{display:grid;font-size:12.5px;gap:0;overflow-x:auto;
+  border:1px solid var(--line2);border-radius:8px}
+.pl-gmatrix > span{padding:5px 10px;border-top:1px solid var(--line);min-width:0}
+.pl-gmatrix > span.hd{border-top:none;background:var(--panel2);color:var(--text-faint);
+  font-size:11.5px;letter-spacing:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pl-gmatrix > .nm{color:var(--text-dim);white-space:nowrap}
+.pl-gmatrix > .nm i{font-style:normal;font-size:10.5px;color:var(--text-faint);margin-left:5px;
+  border:1px solid var(--line2);border-radius:3px;padding:0 4px}
+.pl-gmatrix > .nm em{font-style:normal;font-size:10.5px;color:var(--gold-dim);margin-left:5px}
+.pl-gmatrix > .c{text-align:right;font-variant-numeric:tabular-nums;color:var(--green)}
+.pl-gmatrix > .c:empty{border-top-color:var(--line)}
+.pl-gmatrix > .c.on{color:var(--gold);font-weight:600}
+.pl-gmatrix > .c.evo{color:var(--r-legend)}
+.pl-gmatrix > .c.evo.on{color:var(--gold);font-weight:600}
+.pl-gmatrix > .c.sel{color:var(--gold);font-weight:600;background:#c9a86a0d;
+  border-left:1px solid var(--line2)}\n.pl-cellgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:10px;margin-top:2px}
 .pl-cell{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:10px 13px;cursor:pointer;position:relative}
 .pl-cell:hover{border-color:var(--gold-dim)}
 .pl-cell.on{border-color:var(--gold-dim);background:#c9a86a0d}
@@ -729,6 +813,18 @@ function renderSkillSlot(slot, en, i){
       "<div><div class='nm'>" + esc(branchName(branch)) + " <span class='pl-tip'>L" + en.lv[bi] + " 满级</span></div>" +
       "<div class='ds'>" + rich(branch[en.lv[bi] - 1].desc) + "</div></div>"));
   });
+  // 该功法当前配置实际生效的全局收益（作用于整套构筑的面板增量）
+  const gains = skillGlobalGains(s, en).sort((a, b) => b.srcs.length - a.srcs.length);
+  if(gains.length){
+    const chips = gains.map(g => {
+      const tip = g.srcs.map(x => x.label + "：" + plainText(x.txt)).join("\n");
+      return "<span class='pl-gchip" + (g.depend ? " dep" : "") + "' title='" + esc(tip) + "'>" +
+        esc(g.disp) + (g.cond ? "<i>" + esc(g.cond) + "</i>" : "") +
+        "<b>" + (g.depend ? "动态" : esc(fmtGainVal(g, g.v))) + "</b></span>";
+    }).join("");
+    slot.appendChild(el("div", "pl-slotglobal",
+      "<span class='gl'>全局收益</span>" + chips));
+  }
   if(pts < MAX_POINTS || !en.evo){
     slot.appendChild(el("div", "pl-tip",
       "未毕业（参悟 " + pts + "/" + MAX_POINTS + (en.evo ? "" : " · 未选进化") + "）· 点「编辑」在弹窗里补选"));
@@ -924,6 +1020,49 @@ function openSkillModal(slotIdx, currentId){
       save(); closePlModal(); renderAll();
     };
 
+    // 全局收益矩阵：行=收益，列=各分支点满合计/进化，末列随勾选实时合计
+    const gmRows = skillGlobalMatrix(s);
+    const gmBox = el("div");
+    sh.detail.appendChild(el("div", "pl-mdsec",
+      "全局收益（作用于整套构筑 · 「仅本功法」的效果不在此列 · 勾选分支后末列实时合计）"));
+    sh.detail.appendChild(gmBox);
+    function paintGm(){
+      gmBox.innerHTML = "";
+      if(!gmRows.length){
+        gmBox.appendChild(el("div", "pl-tip",
+          "该功法参悟与进化没有作用于整套构筑的面板收益（全部为仅本功法或触发类机制效果）"));
+        return;
+      }
+      const colN = 7;   // 5 分支 + 进化 + 已选合计
+      const head = ["收益", ...s.upgrades.map((br, bi) => branchName(br) || "分支" + (bi + 1)), "进化", "已选合计"];
+      const cellCls = (ci) => ci === colN ? "sel" : (ci === 5 ? "evo" : "");
+      let html = "<div class='pl-gmatrix' style='grid-template-columns:minmax(120px,max-content) repeat(" + colN + ",minmax(0,auto))'>" +
+        head.map((h, ci) => "<span class='hd" + (ci ? " c" + cellCls(ci) : "") + "' title='" + esc(h) + "'>" + esc(h) + "</span>").join("");
+      gmRows.forEach(r => {
+        const selLv = MODAL.sel.br.map(bi => r.cells[bi]).filter(v => v != null);
+        let sel = selLv.reduce((a, b) => a + b, 0);
+        if(MODAL.sel.evo && r.cells[5] != null) sel += r.cells[5];
+        const nm = esc(r.disp) + (r.cond ? "<i>" + esc(r.cond) + "</i>" : "") +
+          (r.depend ? "<em>动态</em>" : "");
+        html += "<span class='nm" + (r.depend ? " dep" : "") + "'>" + nm + "</span>";
+        for(let ci = 0; ci < 5; ci++){
+          const v = r.cells[ci];
+          const on = MODAL.sel.br.includes(ci);
+          html += "<span class='c" + (on ? " on" : "") + "'>" + (v == null ? "" :
+            (r.depend ? "◇" : esc(fmtGainVal(r, v)))) + "</span>";
+        }
+        const ev = r.cells[5];
+        html += "<span class='c evo" + (MODAL.sel.evo ? " on" : "") + "'>" + (ev == null ? "" :
+          (r.depend ? "◇" : esc(fmtGainVal(r, ev)))) + "</span>";
+        html += "<span class='c sel'>" + (selLv.length || (MODAL.sel.evo && r.cells[5] != null) ?
+          (r.depend ? "动态" : esc(fmtGainVal(r, sel))) : "") + "</span>";
+      });
+      html += "</div>";
+      gmBox.innerHTML = html;
+      gmBox.appendChild(el("div", "pl-tip",
+        "数值为该分支 L1+L2+L3 点满的合计（参悟同线三级同时生效、叠加求和）；◇/动态=按公式实时变化（如天罡咒「每点生命上限+0.2%」），以参悟描述原文为准"));
+    }
+
     sh.detail.appendChild(el("div", "pl-mdsec", "参悟分支（五选三 · 点卡片勾选，每条自动满级 L3）"));
     s.upgrades.forEach((branch, bi) => {
       const bd = el("div", "pl-ubranch open pick" + (MODAL.sel.br.includes(bi) ? " on" : ""));
@@ -944,6 +1083,7 @@ function openSkillModal(slotIdx, currentId){
         }
         else MODAL.sel.br.push(bi);
         bd.classList.toggle("on", MODAL.sel.br.includes(bi));
+        paintGm();
         paintStatus();
       };
       sh.detail.appendChild(bd);
@@ -959,12 +1099,14 @@ function openSkillModal(slotIdx, currentId){
         MODAL.sel.evo = e.id;
         sh.detail.querySelectorAll(".pl-evocard").forEach(c => c.classList.remove("on"));
         card.classList.add("on");
+        paintGm();
         paintStatus();
       };
       sh.detail.appendChild(card);
     });
     foot.append(status, linkBtn, okBtn);
     sh.detail.appendChild(foot);
+    paintGm();
     paintStatus();
   }
   inp.oninput = () => { ui.pickerQ = inp.value; renderList(); };
@@ -1133,6 +1275,8 @@ function renderEquips(c){
     };
     const addDeltas = (deltas, src) => {
       (deltas || []).forEach(d => {
+        if(d.scope === "self") return;   // 仅本功法的面板属性不属于全局合计
+        if(d.depend) return;             // 动态公式类：静态原值≠实际生效值，不计入
         const v = parseFloat(d.value);
         if(isNaN(v)) return;
         addValue(d.stat, plIsPctKey(d.key) ? v * 100 : v, plIsPctKey(d.key), src);
@@ -1152,7 +1296,7 @@ function renderEquips(c){
       addDeltas(s.base_deltas, nm);
       (s.upgrades || []).forEach((branch, bi) => {
         const lv = (en.lv || [])[bi] || 0;
-        if(lv > 0 && branch[lv - 1]) addDeltas(branch[lv - 1].deltas, nm);
+        for(let li = 0; li < lv; li++) addDeltas(branch[li].deltas, nm);   // 同线 L1..Lv 全部叠加
       });
       if(en.evo){
         const e = (s.evolutions || []).find(x => x.id === en.evo);
@@ -1191,7 +1335,7 @@ function renderEquips(c){
       });
       ov.appendChild(tbl);
       ov.appendChild(el("div", "pl-tip",
-        "装备词条取二阶（当前版本最高阶）区间上限（5~8 取 8，实际掉落在区间内随机）；天赋/功法参悟按 buff 常驻面板属性计入；特效与机制类词条不计入，见下方明细"));
+        "装备词条取二阶（当前版本最高阶）区间上限（5~8 取 8，实际掉落在区间内随机）；天赋/功法参悟按 buff 常驻面板属性计入（同线 L1~L3 叠加求和）；「仅本功法」与动态公式类（如素女天音·分支三按范围减半算暴击）不计入合计，见功法卡与弹窗明细"));
     }
 
     // 增益/妨害满层表：只列这套构筑实际能施加的状态——
