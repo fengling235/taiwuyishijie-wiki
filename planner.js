@@ -99,6 +99,176 @@ function trimPoints(en){
   }
 }
 
+/* ==== 构筑码 codec（TWBD1）起始 · 格式与插件 BdCode.cs 同源 —— node 测试按本标记抽取 ====
+   「复制构筑」导出短码：TWBD1. + base64url(小端字节流)。
+   功法=掉落池序号+进化支号(家族_E1/2/3)；装备=设计表行号；词条=词缀表行号；
+   头部带字典 FNV-1a32 哈希，游戏/Wiki 数据版本漂移时解码拒绝而非错装。 */
+const BD_CODE_PREFIX = "TWBD1.";
+const BD_SLOT_ORDER = ["武器", "护甲", "冠饰", "护手", "护足", "宝物", "宝物 2", "戒指", "手镯", "代步"]; // 与上方 SLOT_ORDER 同步
+const BD_ENC = new TextEncoder();
+
+function bdFnv(bytes){
+  let h = 0x811C9DC5;
+  for(let i = 0; i < bytes.length; i++){ h ^= bytes[i]; h = Math.imul(h, 0x01000193) >>> 0; }
+  return h >>> 0;
+}
+function bdDictHash(pool, equips, traits){
+  // 0x01 + 掉落池功法槽名… + 0x02 + 装备全表名… + 0x03 + 词缀全表名…（分隔符即段号）
+  const out = [];
+  const seg = (sep, names) => { out.push(sep); names.forEach((n, i) => { if(i) out.push(sep); BD_ENC.encode(n).forEach(b => out.push(b)); }); };
+  seg(0x01, pool); seg(0x02, equips); seg(0x03, traits);
+  return bdFnv(out);
+}
+function bdWikiDicts(){
+  const D = WIKI_DATA;
+  if(!D.bd_dict || !D.bd_dict.equips || !D.bd_dict.traits) throw new Error("构筑码字典缺失（data.js 过旧，重新生成后可用）");
+  const talents = [];
+  (D.characters || []).forEach(c => (c.talent_tree || []).forEach(branch => (branch || []).forEach(t => {
+    if(t && t.id && talents.indexOf(t.id) < 0) talents.push(t.id);
+  })));
+  return {
+    pool: D.skill_drop_pool || [],
+    equips: D.bd_dict.equips, traits: D.bd_dict.traits,
+    chars: (D.characters || []).map(c => c.id), talents,
+    pets: (D.pets || []).map(p => p.id), elixirs: (D.elixirs || []).map(x => x.id)
+  };
+}
+function bdEncode(b){
+  const d = bdWikiDicts();
+  const eqIdx = new Map(d.equips.map((n, i) => [n, i]));
+  const trIdx = new Map(d.traits.map((n, i) => [n, i]));
+  const out = [];
+  const u8 = v => out.push(v & 0xFF);
+  const u16 = v => { u8(v); u8(v >>> 8); };
+  const u32 = v => { for(let i = 0; i < 4; i++) u8(v >>> (8 * i)); };
+  const str = s => { const bs = BD_ENC.encode(String(s == null ? "" : s)); u16(bs.length); bs.forEach(x => out.push(x)); };
+  const varint = v => { v = v >>> 0; while(v >= 0x80){ out.push((v & 0x7F) | 0x80); v = Math.floor(v / 128); } out.push(v); };
+
+  u8(1); u8(0);                                   // 版本 / 旗标（保留）
+  u32(bdDictHash(d.pool, d.equips, d.traits));    // 字典哈希（版本一致性闸门）
+  u16(d.equips.length); u16(d.traits.length);
+  u8(d.chars.length); u8(d.talents.length); u8(d.pets.length); u8(d.elixirs.length);
+  str(b.name); str(b.note);
+  u8(b.char ? Math.max(0, d.chars.indexOf(b.char)) : 0xFF);
+  const tal = (b.talents || []).map(t => d.talents.indexOf(t)).filter(i => i >= 0);
+  u8(tal.length); tal.forEach(u8);
+  u8(b.pet ? Math.max(0, d.pets.indexOf(b.pet)) : 0xFF);
+  u8((b.skills || []).length);
+  (b.skills || []).forEach(en => {
+    const fam = en.id && en.id.indexOf("Skill_") === 0 ? en.id.slice(6) : en.id;
+    const pi = en.id ? d.pool.indexOf(en.id) : -1;
+    if(pi >= 0) u8(pi); else { u8(0xFF); str(en.id); }   // 掉落池外功法：原样兜底
+    let br = 0;
+    if(en.evo && fam) for(let k = 1; k <= 3; k++) if(en.evo === fam + "_E" + k) br = k;
+    if(br || !en.evo) u8(br); else { u8(0xFF); str(en.evo); }
+    const lvs = en.lv || [];
+    u8(lvs.length); lvs.forEach(u8);
+  });
+  const eqEntries = [];
+  BD_SLOT_ORDER.forEach((slot, si) => {
+    const o = b.equips && b.equips[slot];
+    if(!o || !eqIdx.has(o.id)) return;
+    const eq = (WIKI_DATA.equipment || []).find(e => e.id === o.id);
+    const pools = [];
+    Object.keys(o.picks || {}).sort((a, c) => (+a) - (+c)).forEach(pi => {
+      const picked = (o.picks[pi] || []).filter(Boolean);
+      if(!picked.length) return;
+      const pool = eq && (eq.random_trait_pools || [])[+pi];
+      const idxs = [];
+      picked.forEach(dis => {
+        const pos = pool ? (pool.traits || []).indexOf(dis) : -1;
+        const name = pos >= 0 && pool.ids ? pool.ids[pos] : null;
+        const ti = name != null ? trIdx.get(name) : undefined;
+        if(ti !== undefined) idxs.push(ti);           // 解析不到的词条丢弃（导入侧 sanitize 同口径）
+      });
+      if(idxs.length) pools.push([+pi, idxs]);
+    });
+    eqEntries.push([eqIdx.get(o.id), si, pools]);
+  });
+  u8(eqEntries.length);
+  eqEntries.forEach(([ei, si, pools]) => {
+    varint(ei); u8(si); u8(pools.length);
+    pools.forEach(([pi, idxs]) => { u8(pi); u8(idxs.length); idxs.forEach(varint); });
+  });
+  const elx = (b.elixirs || []).map(x => d.elixirs.indexOf(x)).filter(i => i >= 0);
+  u8(elx.length); elx.forEach(u8);
+  u32(bdFnv(out.slice(6)));   // 尾校验和：FNV-1a32(字节6..末尾)——聊天复制缺字符/改字符直接拒
+
+  let bin = "";
+  out.forEach(v => bin += String.fromCharCode(v));
+  return BD_CODE_PREFIX + btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+function bdDecode(code){
+  const d = bdWikiDicts();
+  const bin = atob(code.slice(BD_CODE_PREFIX.length).replace(/-/g, "+").replace(/_/g, "/").replace(/\s+/g, ""));
+  const u8r = new Uint8Array(bin.length);
+  for(let i = 0; i < bin.length; i++) u8r[i] = bin.charCodeAt(i);
+  const cur = { i: 0 };
+  const u8 = () => { if(cur.i >= u8r.length) throw new Error("构筑码截断"); return u8r[cur.i++]; };
+  const u16 = () => u8() | (u8() << 8);
+  const u32 = () => { let v = 0; for(let i = 0; i < 4; i++) v |= u8() << (8 * i); return v >>> 0; };
+  const str = () => {
+    const n = u16(); const bs = []; for(let k = 0; k < n; k++) bs.push(u8());
+    return new TextDecoder().decode(new Uint8Array(bs)); };
+  const varint = () => { let v = 0, sh = 0, b; do { b = u8(); v += (b & 0x7F) * Math.pow(2, sh); sh += 7; } while(b & 0x80); return v; };
+
+  if(u8() !== 1) throw new Error("构筑码版本不认识（请更新 Wiki）");
+  if(u8() !== 0) throw new Error("构筑码旗标不认识（请更新 Wiki）");
+  if(u32() !== bdDictHash(d.pool, d.equips, d.traits)) throw new Error("构筑码与当前数据版本不符（游戏或 Wiki 更新后请重新生成构筑码）");
+  const nEq = u16(), nTr = u16();
+  if(nEq !== d.equips.length || nTr !== d.traits.length) throw new Error("构筑码与当前数据版本不符（装备/词缀表数量对不上）");
+  const nCh = u8(), nTa = u8(), nPe = u8(), nEl = u8();
+  if(nCh !== d.chars.length || nTa !== d.talents.length || nPe !== d.pets.length || nEl !== d.elixirs.length)
+    throw new Error("构筑码与本页数据版本不同（角色/天赋/灵侍/丹药对不上），更新 Wiki 后再导入");
+  const name = str(), note = str();
+  const ci = u8();
+  const talents = []; for(let k = 0, n = u8(); k < n; k++){ const t = u8(); if(t < d.talents.length) talents.push(d.talents[t]); }
+  const pi_ = u8();
+  const skills = [];
+  for(let k = 0, n = u8(); k < n; k++){
+    let id, br;
+    const p = u8();
+    if(p === 0xFF) id = str(); else id = p < d.pool.length ? d.pool[p] : null;
+    const eb = u8();
+    if(eb === 0xFF) br = str();
+    else br = eb;                                    // 0=无进化 1..3=家族_E{n}
+    const lvs = []; for(let j = 0, m = u8(); j < m; j++) lvs.push(u8());
+    if(id) skills.push({ id, evo: null, lv: lvs, _br: br });
+  }
+  skills.forEach(s => {
+    const fam = s.id.indexOf("Skill_") === 0 ? s.id.slice(6) : s.id;
+    s.evo = (typeof s._br === "number" && s._br > 0) ? (fam + "_E" + s._br) : (typeof s._br === "string" ? s._br : null);
+    delete s._br;
+  });
+  const equips = {};
+  for(let k = 0, n = u8(); k < n; k++){
+    const ei = varint(), si = u8();
+    if(ei >= d.equips.length || si >= BD_SLOT_ORDER.length) { for(let z = 0, m = u8(); z < m; z++){ u8(); const c2 = u8(); for(let q = 0; q < c2; q++) varint(); } continue; }
+    const id = d.equips[ei], slot = BD_SLOT_ORDER[si];
+    const eq = (WIKI_DATA.equipment || []).find(e => e.id === id);
+    const picks = {};
+    for(let z = 0, m = u8(); z < m; z++){
+      const ppi = u8(), picksArr = [];
+      for(let q = 0, c2 = u8(); q < c2; q++){
+        const ti = varint();
+        const pool = eq && (eq.random_trait_pools || [])[ppi];
+        const name = ti < d.traits.length ? d.traits[ti] : null;
+        const pos = pool && pool.ids ? pool.ids.indexOf(name) : -1;
+        if(pos >= 0) picksArr.push(pool.traits[pos]);
+      }
+      if(picksArr.length) picks[ppi] = picksArr;
+    }
+    equips[slot] = { id, picks };
+  }
+  const elixirs = []; for(let k = 0, n = u8(); k < n; k++){ const e = u8(); if(e < d.elixirs.length) elixirs.push(d.elixirs[e]); }
+  const bodyEnd = u8r.length - 4;
+  if(cur.i !== bodyEnd) throw new Error("构筑码长度不对（复制不完整？重新复制一次）");
+  if(u32() !== bdFnv(u8r.slice(6, bodyEnd))) throw new Error("构筑码内容损坏（校验和不符，重新复制一次）");
+  return { v: 1, name: name || "导入的构筑", char: ci < d.chars.length ? d.chars[ci] : null,
+           talents, skills, pet: pi_ < d.pets.length ? d.pets[pi_] : null, equips, elixirs, note };
+}
+/* ==== 构筑码 codec（TWBD1）结束 ==== */
+
 let store = loadStore();
 let B = store.list[store.active];
 let ui = { openSlot: -1, pickerQ: "", pickerTags: new Set(), showIO: false };
@@ -141,7 +311,7 @@ function skillBadgeHtml(en){
     return "<span class='badge" + (base ? "" : " x") + "'>" + esc(t) + "</span>";
   }).join("");
 }
-/* 导出前检查：已选装备的目标词条是否每池勾满（未勾满时 JSON 发装备会缺词条） */
+/* 导出前检查：已选装备的目标词条是否每池勾满（未勾满时构筑码发装备会缺词条） */
 function equipUnpickedList(){
   const out = [];
   SLOT_ORDER.forEach(s => {
@@ -162,7 +332,7 @@ function confirmPicksComplete(){
   const miss = equipUnpickedList();
   if(!miss.length) return true;
   return confirm("以下装备的目标词条未勾满：\n\n" + miss.join("\n") +
-    "\n\n未勾满时导出的 JSON 词条不全，游戏内「JSON 发装备」会缺词条。\n仍要继续复制吗？");
+    "\n\n未勾满时导出的构筑码词条不全，游戏内「发装备」会缺词条。\n仍要继续复制吗？");
 }
 
 function equipTraitLine(t){
@@ -636,10 +806,12 @@ function renderToolbar(){
     save(); renderAll();
   };
   const bCopyJson = el("button", "pl-btn", "复制构筑");
-  bCopyJson.title = "把当前构筑复制为 JSON 文本（分享给别人，粘到导出/导入面板即可导入）";
+  bCopyJson.title = "把当前构筑复制为短构筑码（TWBD1.…）：游戏内右键「装配BD / 发装备 / 预设加点」直接可用；粘到导出/导入面板也可导入";
   bCopyJson.onclick = async () => {
     if(!confirmPicksComplete()) return;
-    const txt = JSON.stringify(B);
+    let txt;
+    try{ txt = bdEncode(B); }
+    catch(e){ alert("构筑码生成失败：" + e.message); return; }
     const flash = (t) => { bCopyJson.textContent = t; setTimeout(() => { bCopyJson.textContent = "复制构筑"; }, 1600); };
     try{
       await navigator.clipboard.writeText(txt);
@@ -673,26 +845,33 @@ function buildSummaryTag(b){
 
 function renderIO(){
   const p = el("div", "panel");
-  p.appendChild(el("div", "sec-title", "导出 / 导入（JSON）"));
-  p.appendChild(el("p", "", "<span style='font-size:12px;color:var(--text-faint)'>导出当前构筑的完整 JSON（后续版本将支持链接分享）。粘贴他人分享的 JSON 后点「导入」即可载入。</span>"));
+  p.appendChild(el("div", "sec-title", "导出 / 导入（构筑码 / JSON）"));
+  p.appendChild(el("p", "", "<span style='font-size:12px;color:var(--text-faint)'>工具栏「复制构筑」复制的是短构筑码（TWBD1.…），游戏内与这里都能导入。本框显示完整 JSON（备用格式），粘贴构筑码或 JSON 后点「导入」均可载入。</span>"));
   const ta = el("textarea", "pl-io"); ta.id = "pl-io-text";
   ta.value = JSON.stringify(B);
   const row = el("div", "filters"); row.style.marginTop = "8px";
-  const bCopy = el("button", "pl-btn", "复制到剪贴板");
+  const bCopy = el("button", "pl-btn", "复制 JSON 到剪贴板");
   bCopy.onclick = () => {
     if(!confirmPicksComplete()) return;
     ta.select();
-    try{ document.execCommand("copy"); bCopy.textContent = "已复制"; setTimeout(() => bCopy.textContent = "复制到剪贴板", 1200); }catch(e){}
+    try{ document.execCommand("copy"); bCopy.textContent = "已复制"; setTimeout(() => bCopy.textContent = "复制 JSON 到剪贴板", 1200); }catch(e){}
   };
   const bImp = el("button", "pl-btn", "导入文本框内容");
   bImp.onclick = () => {
+    const raw = ta.value.trim();
     try{
-      const obj = JSON.parse(ta.value);
-      const b = sanitize(obj);
-      b.name = (obj && obj.name ? String(obj.name) : "导入的构筑").slice(0, 40);
+      let b;
+      if(raw.indexOf(BD_CODE_PREFIX) === 0){
+        b = sanitize(bdDecode(raw.replace(/\s+/g, "")));
+        b.name = b.name || "导入的构筑";
+      }else{
+        const obj = JSON.parse(raw);
+        b = sanitize(obj);
+        b.name = (obj && obj.name ? String(obj.name) : "导入的构筑").slice(0, 40);
+      }
       store.list.push(b); store.active = store.list.length - 1; B = b;
       ui.showIO = false; save(); renderAll();
-    }catch(e){ alert("导入失败：不是有效的构筑 JSON"); }
+    }catch(e){ alert("导入失败：" + (raw.indexOf(BD_CODE_PREFIX) === 0 ? e.message : "不是有效的构筑码 / JSON")); }
   };
   row.append(bCopy, bImp);
   p.append(ta, row);
